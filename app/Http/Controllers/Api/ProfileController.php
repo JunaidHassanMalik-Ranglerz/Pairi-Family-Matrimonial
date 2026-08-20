@@ -153,7 +153,7 @@ class ProfileController extends Controller
     try {
         $request->validate([
             'photos' => 'required',
-            'photos.*' => 'required|image|mimes:jpeg,png,jpg,webp|max:5120',
+            'photos.*' => 'required|file|max:5120',
             'main_index' => 'nullable|integer|min:0',
         ]);
 
@@ -212,7 +212,11 @@ class ProfileController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         try {
-            // 
+             $request->validate([
+            'photos' => 'required',
+            ],[
+                'photos.required' => 'Photo is required.',
+            ]);
 
             $user = $request->user();
             $data = $request->only([
@@ -274,4 +278,69 @@ class ProfileController extends Controller
             'error' => config('app.debug') ? $e->getMessage() : null
         ], 500);
     }
+
+    public function updatePhotoVisibility(Request $request): JsonResponse
+{
+    try {
+
+        $request->validate([
+            'profile_photo_visible' => 'sometimes|in:0,1,true,false',
+            'additional_photos_visible' => 'sometimes|in:0,1,true,false',
+        ]);
+
+        $user = $request->user();
+
+        $data = [];
+
+        if ($request->has('profile_photo_visible')) {
+            $data['profile_photo_visible'] = filter_var(
+                $request->input('profile_photo_visible'),
+                FILTER_VALIDATE_BOOLEAN
+            );
+        }
+
+        if ($request->has('additional_photos_visible')) {
+            $data['additional_photos_visible'] = filter_var(
+                $request->input('additional_photos_visible'),
+                FILTER_VALIDATE_BOOLEAN
+            );
+        }
+
+        if (empty($data)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please provide at least one visibility setting.',
+            ], 422);
+        }
+
+        $user->update($data);
+
+        $user->refresh();
+
+        return response()->json([
+            'success' => 200,
+            'message' => 'Photo visibility updated successfully.',
+            'data' => [
+                'profile_photo_visible' => (bool) $user->profile_photo_visible,
+                'additional_photos_visible' => (bool) $user->additional_photos_visible,
+            ],
+        ], 200);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->validator->errors()->first(),
+            'errors' => $e->errors(),
+        ], 422);
+
+    } catch (\Exception $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to update photo visibility settings.',
+            'error' => config('app.debug') ? $e->getMessage() : null,
+        ], 500);
+    }
+}
 }

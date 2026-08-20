@@ -35,18 +35,23 @@ public function register(Request $request): JsonResponse
         $otp = $this->generateOtp(6);
         $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
 
-        // OTP sirf email ke liye — resend support; complete API par verify nahi hota
         Cache::put(
             $this->pendingRegistrationCacheKey($request->email),
             [
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+                'password' => $request->password,
+                'referral_code' => $request->referral_code,
+
                 'otp' => $otp,
-                'otp_expires_at' => now()->addMinutes(10),
-                'otp_resend_available_at' => now()->addSeconds($resendSeconds),
+                'otp_expires_at' => now()->addMinutes(10)->toDateTimeString(),
+                'otp_resend_available_at' => now()->addSeconds($resendSeconds)->toDateTimeString(),
             ],
             now()->addMinutes(30)
         );
 
-        $this->sendOtpEmail($request->email, $otp, 'Email Verification - Pairi Family');
+        $this->sendOtpEmail($request->email, $otp, 'Email Verification - Piyari Family');
 
         return response()->json([
             'success' => 200,
@@ -137,53 +142,189 @@ public function registerComplete(Request $request): JsonResponse
     }
 }
     public function verifyEmailOtp(Request $request): JsonResponse
-    {
-        try {
-            $request->validate([
-                'email' => 'required|email|exists:users,email',
-            ]);
+{
+    try {
 
-            $user = User::where('email', $request->email)->first();
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required|string|size:6',
+        ]);
 
-            if ($user->is_verified) {
-                return response()->json([
-                    'success' => 200,
-                    'message' => 'Email already verified.',
-                    'user' => UserResource::toPayload($user),
-                    'token' => $user->createToken('auth')->plainTextToken,
-                ], 200);
-            }
+        $cacheKey = $this->pendingRegistrationCacheKey($request->email);
 
-            if ($user->otp !== $request->otp || ($user->email_otp_expires_at && $user->email_otp_expires_at->isPast())) {
-                return response()->json(['success' => false, 'message' => 'Invalid or expired OTP.'], 400);
-            }
+        $pendingRegistration = Cache::get($cacheKey);
 
-            $user->update([
-                'is_verified' => true,
-                'email_verified_at' => now(),
-                'otp' => null,
-                'email_otp_expires_at' => null,
-                'otp_resend_available_at' => null,
-            ]);
+        \Log::info('OTP verification attempt', [
+            'email' => $request->email,
+            'cache_key' => $cacheKey,
+            'pending_registration' => $pendingRegistration,
+            'request_otp' => $request->otp,
+        ]);
 
-            $this->processReferralReward($user);
-
-            return response()->json([
-                'success' => 200,
-                'message' => 'Email verified successfully.',
-                'user' => UserResource::toPayload($user->fresh()),
-                'token' => $user->createToken('auth')->plainTextToken,
-            ], 200);
-        } catch (ValidationException $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
-        } catch (\Exception $e) {
+        if (!$pendingRegistration) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to verify email OTP.',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
+                'message' => 'Registration session expired. Please register again.',
+            ], 400);
         }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check OTP
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            !isset($pendingRegistration['otp']) ||
+            (string) $pendingRegistration['otp'] !== (string) $request->otp
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid OTP.',
+            ], 400);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check OTP expiry
+        |--------------------------------------------------------------------------
+        */
+
+        if (!empty($pendingRegistration['otp_expires_at'])) {
+
+            $expiresAt = \Carbon\Carbon::parse(
+                $pendingRegistration['otp_expires_at']
+            );
+
+            if ($expiresAt->isPast()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'OTP has expired. Please request a new OTP.',
+                ], 400);
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check duplicate email
+        |--------------------------------------------------------------------------
+        */
+
+        if (User::where('email', $pendingRegistration['email'])->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Email is already registered.',
+            ], 422);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check duplicate phone
+        |--------------------------------------------------------------------------
+        */
+
+        if (User::where('phone', $pendingRegistration['phone'])->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Phone number is already registered.',
+            ], 422);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Referral
+        |--------------------------------------------------------------------------
+        */
+
+        $referrerId = null;
+
+        if (!empty($pendingRegistration['referral_code'])) {
+
+            $referrer = User::where(
+                'referral_code',
+                $pendingRegistration['referral_code']
+            )->first();
+
+            if ($referrer) {
+                $referrerId = $referrer->id;
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create User
+        |--------------------------------------------------------------------------
+        */
+
+        $user = User::create([
+            'name' => $pendingRegistration['name'],
+            'email' => $pendingRegistration['email'],
+            'phone' => $pendingRegistration['phone'],
+            'password' => $pendingRegistration['password'],
+            'is_verified' => true,
+            'email_verified_at' => now(),
+            'terms_accepted_at' => now(),
+            'status' => 'active',
+            'referred_by' => $referrerId,
+        ]);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Remove pending registration
+        |--------------------------------------------------------------------------
+        */
+
+        Cache::forget($cacheKey);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Referral Reward
+        |--------------------------------------------------------------------------
+        */
+
+        $this->processReferralReward($user);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Token
+        |--------------------------------------------------------------------------
+        */
+
+        $token = $user->createToken('auth')->plainTextToken;
+
+        return response()->json([
+            'success' => 200,
+            'message' => 'Email verified successfully. Registration completed.',
+            'user' => UserResource::toPayload($user->fresh()),
+            'token' => $token,
+        ], 201);
+
+    } catch (ValidationException $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->validator->errors()->first(),
+            'errors' => $e->errors(),
+        ], 422);
+
+    } catch (\Throwable $e) {
+
+        \Log::error('Failed to verify email OTP', [
+            'email' => $request->email ?? null,
+            'otp' => $request->otp ?? null,
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to verify email OTP.',
+            'error' => config('app.debug') ? $e->getMessage() : null,
+        ], 500);
     }
+}
 
    public function resendEmailOtp(Request $request): JsonResponse
 {

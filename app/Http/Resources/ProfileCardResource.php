@@ -20,7 +20,20 @@ class ProfileCardResource extends JsonResource
             'qualification' => $this->qualification,
             'religion' => $this->religion,
             'marital_status' => $this->marital_status,
-            'photos' => $this->photos,
+            'photos' => collect($this->photos ?? [])
+            ->map(function ($photo) {
+                if (empty($photo['path'])) {
+                    return null;
+                }
+
+                return [
+                    'url' => media_url($photo['path']),
+                    'is_main' => (bool) ($photo['is_main'] ?? false),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray(),
             'is_verified' => (bool) $this->is_verified,
             'phone_verified' => (bool) $this->phone_verified,
             'is_new' => $this->created_at?->gte(now()->subDays(config('pairi_family.new_profile_days', 3))) ?? false,

@@ -119,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/photos', [ProfileController::class, 'uploadPhotos']);
         Route::post('/update', [ProfileController::class, 'updateProfile']);
         Route::post('/complete', [ProfileController::class, 'completeProfile']);
+        Route::post('/photo-visibility',[ProfileController::class, 'updatePhotoVisibility']);
     });
 
     Route::get('/profile-details/{user}', [MatchController::class, 'profileDetails']);
