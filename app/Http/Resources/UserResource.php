@@ -21,6 +21,8 @@ class UserResource extends JsonResource
             'is_main' => (bool) ($photo['is_main'] ?? false),
         ])->values()->all();
 
+        $membership = $this->membershipPayload();
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -33,6 +35,8 @@ class UserResource extends JsonResource
             'age' => $this->age,
             'country' => $this->country,
             'city' => $this->city,
+            'latitude' => $this->latitude,
+            'longitude' => $this->longitude,
             'bio' => $this->bio,
             'profile_photo' => $this->profile_photo,
             'photos' => $photos,
@@ -68,7 +72,34 @@ class UserResource extends JsonResource
             'profile_photo_visible' => (bool) ($this->profile_photo_visible ?? true),
             'additional_photos_visible' => (bool) ($this->additional_photos_visible ?? true),
             'profile_boost_until' => $this->profile_boost_until?->toIso8601String(),
+            'membership_badge' => $membership['membership_badge'],
+            'plan_type' => $membership['plan_type'],
+            'discount_eligible' => $membership['discount_eligible'],
+            'optional_profile_completed' => $membership['optional_profile_completed'],
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    private function membershipPayload(): array
+    {
+        try {
+            $user = $this->resource;
+            $access = app(\App\Services\SubscriptionAccessService::class);
+            $completion = app(\App\Services\ProfileCompletionService::class);
+
+            return [
+                'membership_badge' => $access->membershipBadge($user),
+                'plan_type' => $access->activePlan($user)?->type ?? 'Free',
+                'discount_eligible' => $completion->isEligibleForDiscount($user),
+                'optional_profile_completed' => $completion->hasAllOptionalFieldsCompleted($user),
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'membership_badge' => null,
+                'plan_type' => 'Free',
+                'discount_eligible' => false,
+                'optional_profile_completed' => false,
+            ];
+        }
     }
 }

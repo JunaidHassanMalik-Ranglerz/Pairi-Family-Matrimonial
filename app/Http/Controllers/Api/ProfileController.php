@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Models\User;
+use App\Models\PhotoAccessRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -23,6 +25,32 @@ class ProfileController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
             return $this->errorResponse('Failed to update country.', $e);
+        }
+    }
+
+    public function updateLocation(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'city' => 'nullable|string|max:100',
+                'country' => 'nullable|string|max:100',
+                'latitude' => 'required|numeric|between:-90,90',
+                'longitude' => 'required|numeric|between:-180,180',
+            ]);
+
+            $user = $request->user();
+            $user->update(array_filter([
+                'city' => $request->city,
+                'country' => $request->country,
+                'latitude' => $request->latitude,
+                'longitude' => $request->longitude,
+            ], fn ($value) => $value !== null && $value !== ''));
+
+            return $this->success($user, 'Location saved.');
+        } catch (ValidationException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            return $this->errorResponse('Failed to update location.', $e);
         }
     }
 
@@ -221,7 +249,7 @@ class ProfileController extends Controller
             $user = $request->user();
             $data = $request->only([
                 'name', 'birthday', 'gender', 'bio', 'email', 'phone',
-                'city', 'country', 'height', 'mother_tongue', 'marital_status',
+                'city', 'country', 'latitude', 'longitude', 'height', 'mother_tongue', 'marital_status',
                 'community', 'residential_status',
             ]);
 
@@ -241,7 +269,7 @@ class ProfileController extends Controller
 
             $user->update(array_filter($data, fn ($v) => $v !== null));
 
-            return $this->success($user->fresh(), 'Profile updated.');
+            return $this->success($user->fresh(), 'Profile updated successfully.');
         } catch (ValidationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
@@ -340,6 +368,161 @@ class ProfileController extends Controller
             'success' => false,
             'message' => 'Failed to update photo visibility settings.',
             'error' => config('app.debug') ? $e->getMessage() : null,
+        ], 500);
+    }
+}
+
+public function photoGallery(Request $request, User $user): JsonResponse
+{
+    try {
+
+        $viewer = $request->user();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found.',
+            ], 404);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check profile status
+        |--------------------------------------------------------------------------
+        */
+
+        if ($user->status !== 'active') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Profile not available.',
+            ], 404);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Check photo access
+        |--------------------------------------------------------------------------
+        */
+
+        $accessGranted = false;
+
+        if ($viewer) {
+
+            // Owner can always view own photos
+            if ((int) $viewer->id === (int) $user->id) {
+                $accessGranted = true;
+            }
+
+            // Check approved photo access request
+            if (!$accessGranted) {
+                $accessGranted = PhotoAccessRequest::hasApprovedAccess(
+                    (int) $viewer->id,
+                    (int) $user->id
+                );
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Profile photo visibility
+        |--------------------------------------------------------------------------
+        */
+
+        $profilePhotoVisible =
+            (bool) ($user->profile_photo_visible ?? true)
+            || $accessGranted;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Additional photos visibility
+        |--------------------------------------------------------------------------
+        */
+
+        $additionalPhotosVisible =
+            (bool) ($user->additional_photos_visible ?? true)
+            || $accessGranted;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get photos
+        |--------------------------------------------------------------------------
+        */
+
+        $photos = collect($user->photos ?? []);
+
+        /*
+        |--------------------------------------------------------------------------
+        | If profile photo is hidden
+        |--------------------------------------------------------------------------
+        */
+
+        if (!$profilePhotoVisible) {
+            $photos = $photos->reject(function ($photo) {
+                return (bool) ($photo['is_main'] ?? false);
+            });
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | If additional photos are hidden
+        |--------------------------------------------------------------------------
+        */
+
+        if (!$additionalPhotosVisible) {
+            $photos = $photos->filter(function ($photo) {
+                return (bool) ($photo['is_main'] ?? false);
+            });
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Format photos
+        |--------------------------------------------------------------------------
+        */
+
+        $photos = $photos->values()->map(function ($photo, $index) {
+
+            return [
+                'index' => $index,
+                'url' => media_url($photo['path'] ?? null),
+                'path' => $photo['path'] ?? null,
+                'is_main' => (bool) ($photo['is_main'] ?? false),
+            ];
+
+        })->values()->all();
+
+        return response()->json([
+            'success' => 200,
+            'message' => 'Photo gallery retrieved successfully.',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+            ],
+            'visibility' => [
+                'profile_photo_visible' => $profilePhotoVisible,
+                'additional_photos_visible' => $additionalPhotosVisible,
+                'access_granted' => $accessGranted,
+            ],
+            'photos' => $photos,
+            'total_photos' => count($photos),
+        ], 200);
+
+    } catch (\Exception $e) {
+
+        \Log::error('Failed to load photo gallery', [
+            'viewer_id' => $request->user()?->id,
+            'profile_id' => $user->id ?? null,
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to load photo gallery.',
+            'error' => config('app.debug')
+                ? $e->getMessage()
+                : null,
         ], 500);
     }
 }

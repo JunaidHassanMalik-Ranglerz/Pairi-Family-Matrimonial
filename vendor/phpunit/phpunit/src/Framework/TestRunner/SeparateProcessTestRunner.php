@@ -13,12 +13,10 @@ use function assert;
 use function defined;
 use function get_include_path;
 use function hrtime;
-use function register_shutdown_function;
 use function serialize;
 use function sys_get_temp_dir;
 use function tempnam;
 use function unlink;
-use function unserialize;
 use function var_export;
 use PHPUnit\Event\NoPreviousThrowableException;
 use PHPUnit\Runner\CodeCoverage;
@@ -36,7 +34,7 @@ use SebastianBergmann\Template\Template;
  *
  * @internal This class is not covered by the backward compatibility promise for PHPUnit
  */
-final class SeparateProcessTestRunner implements IsolatedTestRunner
+final class SeparateProcessTestRunner
 {
     private static ?string $sourceMapFile = null;
 
@@ -179,13 +177,6 @@ final class SeparateProcessTestRunner implements IsolatedTestRunner
             return self::$sourceMapFile;
             // @codeCoverageIgnoreEnd
         }
-
-        register_shutdown_function(static function () use ($path): void
-        {
-            // @codeCoverageIgnoreStart
-            @unlink($path);
-            // @codeCoverageIgnoreEnd
-        });
 
         self::$sourceMapFile = $path;
 

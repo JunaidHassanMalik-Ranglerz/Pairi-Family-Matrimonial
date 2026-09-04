@@ -4,6 +4,7 @@ namespace Srmklive\PayPal\Tests;
 
 trait MockRequestPayloads
 {
+    use Mocks\Requests\BillingAgreements;
     use Mocks\Requests\BillingPlans;
     use Mocks\Requests\CatalogProducts;
     use Mocks\Requests\Disputes;
@@ -14,10 +15,10 @@ trait MockRequestPayloads
     use Mocks\Requests\InvoicesTemplates;
     use Mocks\Requests\Orders;
     use Mocks\Requests\PartnerReferrals;
-    use Mocks\Requests\PaymentExperienceWebProfiles;
-    use Mocks\Requests\PaymentMethodsTokens;
     use Mocks\Requests\PaymentAuthorizations;
     use Mocks\Requests\PaymentCaptures;
+    use Mocks\Requests\PaymentExperienceWebProfiles;
+    use Mocks\Requests\PaymentMethodsTokens;
     use Mocks\Requests\Payouts;
     use Mocks\Requests\ReferencedPayouts;
     use Mocks\Requests\Subscriptions;

@@ -40,7 +40,7 @@
                                     </td>
                                     <td>{{ $notification->recipient_count }}</td>
                                     <td>{{ $notification->creator->name ?? 'Admin' }}</td>
-                                    <td>{{ $notification->created_at?->format('d M Y, h:i A') }}</td>
+                                   <td>{{ $notification->created_at?->timezone('Asia/Karachi')->format('d M Y, h:i A') }}</td>
                                     <td>
                                         <a href="{{ route('admin.notifications.show', $notification->id) }}" class="btn btn-info btn-sm" title="View">
                                             <i class="fa fa-eye"></i>

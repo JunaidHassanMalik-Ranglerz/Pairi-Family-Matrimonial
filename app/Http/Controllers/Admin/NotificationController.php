@@ -14,7 +14,11 @@ class NotificationController extends Controller
 {
     public function index()
     {
-        $notifications = AdminNotification::with('creator')->latest()->get();
+        try {
+            $notifications = AdminNotification::with('creator')->latest()->get();
+        } catch (\Throwable $e) {
+            $notifications = collect();
+        }
 
         return view('admin.notifications.index', compact('notifications'));
     }

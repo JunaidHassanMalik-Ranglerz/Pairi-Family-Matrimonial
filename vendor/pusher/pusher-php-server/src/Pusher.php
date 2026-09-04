@@ -3,8 +3,8 @@
 namespace Pusher;
 
 use GuzzleHttp\ClientInterface;
-use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Exception\GuzzleException;
+use Psr\Http\Client\NetworkExceptionInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
 use Psr\Log\LoggerInterface;
@@ -19,7 +19,7 @@ class Pusher implements LoggerAwareInterface, PusherInterface
     /**
      * @var string Version
      */
-    public static $VERSION = '7.2.6';
+    public static $VERSION = '7.3.0';
 
     /**
      * @var null|PusherCrypto
@@ -721,7 +721,7 @@ class Pusher implements LoggerAwareInterface, PusherInterface
             'X-Pusher-Library' => 'pusher-http-php ' . self::$VERSION
         ];
 
-        $response = $this->client->get(ltrim($path, '/'), [
+        $response = $this->client->request('GET', ltrim($path, '/'), [
             'query' => $signature,
             'http_errors' => false,
             'headers' => $headers,
@@ -773,7 +773,7 @@ class Pusher implements LoggerAwareInterface, PusherInterface
         ];
 
         try {
-            $response = $this->client->post(ltrim($path, '/'), [
+            $response = $this->client->request('POST', ltrim($path, '/'), [
                 'query' => $params_with_signature,
                 'body' => $body,
                 'http_errors' => false,
@@ -781,8 +781,8 @@ class Pusher implements LoggerAwareInterface, PusherInterface
                 'base_uri' => $this->channels_url_prefix(),
                 'timeout' => $this->settings['timeout']
             ]);
-        } catch (ConnectException $e) {
-            throw new ApiErrorException($e->getMessage());
+        } catch (NetworkExceptionInterface $e) {
+            throw new ApiErrorException($e->getMessage(), 0, $e);
         }
 
         $status = $response->getStatusCode();
@@ -824,7 +824,7 @@ class Pusher implements LoggerAwareInterface, PusherInterface
             'X-Pusher-Library' => 'pusher-http-php ' . self::$VERSION
         ];
 
-        return $this->client->postAsync(ltrim($path, '/'), [
+        return $this->client->requestAsync('POST', ltrim($path, '/'), [
             'query' => $params_with_signature,
             'body' => $body,
             'http_errors' => false,
@@ -846,8 +846,16 @@ class Pusher implements LoggerAwareInterface, PusherInterface
             }
 
             return $response_body;
-        }, function (ConnectException $e) {
-            throw new ApiErrorException($e->getMessage());
+        }, function ($reason) {
+            if ($reason instanceof NetworkExceptionInterface) {
+                throw new ApiErrorException($reason->getMessage(), 0, $reason);
+            }
+
+            if ($reason instanceof \Throwable) {
+                throw $reason;
+            }
+
+            throw new PusherException('HTTP request failed.');
         });
     }
 
@@ -996,7 +1004,7 @@ class Pusher implements LoggerAwareInterface, PusherInterface
         try {
             $decoded_json = json_decode($body, false, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException $e) {
-            $this->log('Unable to decrypt webhook event payload.', null, LogLevel::WARNING);
+            $this->log('Unable to decrypt webhook event payload.', [], LogLevel::WARNING);
             throw new PusherException('Data encoding error.');
         }
 
@@ -1006,12 +1014,12 @@ class Pusher implements LoggerAwareInterface, PusherInterface
                     $decryptedEvent = $this->crypto->decrypt_event($event);
 
                     if ($decryptedEvent === false) {
-                        $this->log('Unable to decrypt webhook event payload. Wrong key? Ignoring.', null, LogLevel::WARNING);
+                        $this->log('Unable to decrypt webhook event payload. Wrong key? Ignoring.', [], LogLevel::WARNING);
                         continue;
                     }
                     $decoded_events[] = $decryptedEvent;
                 } else {
-                    $this->log('Got an encrypted webhook event payload, but no master key specified. Ignoring.', null, LogLevel::WARNING);
+                    $this->log('Got an encrypted webhook event payload, but no master key specified. Ignoring.', [], LogLevel::WARNING);
                 }
             } else {
                 $decoded_events[] = $event;

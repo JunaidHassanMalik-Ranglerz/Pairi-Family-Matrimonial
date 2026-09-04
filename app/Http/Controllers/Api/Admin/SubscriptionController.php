@@ -11,10 +11,12 @@ class SubscriptionController extends Controller
     public function index()
     {
         try {
+            $types = array_keys(config('subscription_plans.user_plans', ['Free' => [], 'VIP' => [], 'VVIP' => []]));
+
             return response()->json([
                 'success' => 200,
-                'subscriptions' => Subscription::whereIn('type', ['Free', 'VIP', 'VVIP'])
-                    ->orderByRaw("FIELD(type, 'Free', 'VIP', 'VVIP')")
+                'subscriptions' => Subscription::whereIn('type', $types)
+                    ->orderByRaw("FIELD(type, '".implode("','", $types)."')")
                     ->get(),
             ], 200);
         } catch (\Exception $e) {
@@ -30,7 +32,7 @@ class SubscriptionController extends Controller
     {
         return response()->json([
             'success' => false,
-            'message' => 'Creating new subscription plans is disabled. Only Free, VIP and VVIP plans exist.',
+            'message' => 'Creating new subscription plans is disabled. Only configured user plans exist.',
         ], 403);
     }
 

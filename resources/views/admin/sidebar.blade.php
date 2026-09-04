@@ -219,7 +219,7 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
                 </a>
                 <ul id="featuresMenu" class="sidebar-submenu collapse {{ $featuresOpen ? 'show' : '' }}" data-bs-parent="#adminSidebarMenu">
                     <li><a href="{{ route('admin.subscriptions.index') }}" class="{{ request()->routeIs('admin.subscriptions.*') ? 'active' : '' }}">{{ __('Subscriptions') }}</a></li>
-                    <!-- <li><a href="{{ route('admin.notifications.index') }}" class="{{ request()->routeIs('admin.notifications.*') ? 'active' : '' }}">{{ __('Notifications') }}</a></li> -->
+                    <li><a href="{{ route('admin.notifications.index') }}" class="{{ request()->routeIs('admin.notifications.*') ? 'active' : '' }}">{{ __('Notifications') }}</a></li>
                 </ul>
             </li>
 

@@ -38,6 +38,10 @@ class MatchController extends Controller
 
             $topMatch = $ranked->first();
             $suggested = $ranked->slice(1, 10)->values();
+            $this->matchService->attachDistances(
+                $viewer,
+                collect([$topMatch])->filter()->concat($suggested)
+            );
 
             return response()->json([
                 'success' => 200,
@@ -71,6 +75,7 @@ class MatchController extends Controller
             $page = max((int) $request->get('page', 1), 1);
             $total = $ranked->count();
             $items = $ranked->slice(($page - 1) * $perPage, $perPage)->values();
+            $this->matchService->attachDistances($viewer, $items);
 
             return response()->json([
                 'success' => 200,
@@ -192,6 +197,18 @@ class MatchController extends Controller
 
     private function prepareProfile(User $viewer, User $user): User
     {
+        if (!$user->relationLoaded('subscriptions')) {
+            $user->load(['subscriptions' => function ($q) {
+                $q->with('plan')
+                    ->whereIn('status', ['verified', 'free'])
+                    ->whereNull('cancelled_at')
+                    ->where(function ($sub) {
+                        $sub->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                    })
+                    ->latest();
+            }]);
+        }
+
         $user->match_score = $this->matchService->scoreProfile($viewer, $user);
         $user->interest_sent = $viewer->sentInterests()
             ->where('to_user_id', $user->id)
@@ -202,6 +219,7 @@ class MatchController extends Controller
             ->where('action', 'interest')
             ->exists();
         $user->mutual_match = $user->interest_sent && $user->interest_received;
+        $this->matchService->attachDistances($viewer, collect([$user]));
 
         return $user;
     }

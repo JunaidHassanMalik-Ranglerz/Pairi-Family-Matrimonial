@@ -96,6 +96,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/social-login', [SocialAuthController::class, 'login']);
 Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/verify-reset-otp', [AuthController::class, 'verifyResetOtp']);
+Route::post('/forgot-resend-otp', [AuthController::class, 'forgotResendEmailOtp']);
 Route::post('/set-new-password', [AuthController::class, 'setNewPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
@@ -111,6 +112,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('profile')->group(function () {
         Route::post('/country', [ProfileController::class, 'updateCountry']);
+        Route::post('/location', [ProfileController::class, 'updateLocation']);
         Route::post('/basic-info', [ProfileController::class, 'updateBasicInfo']);
         Route::post('/education', [ProfileController::class, 'updateEducation']);
         Route::post('/career', [ProfileController::class, 'updateCareer']);
@@ -121,7 +123,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/complete', [ProfileController::class, 'completeProfile']);
         Route::post('/photo-visibility',[ProfileController::class, 'updatePhotoVisibility']);
     });
-
+    Route::get('/profile/{user}/photo-gallery', [ProfileController::class, 'photoGallery']);
     Route::get('/profile-details/{user}', [MatchController::class, 'profileDetails']);
 
     Route::prefix('matches')->group(function () {

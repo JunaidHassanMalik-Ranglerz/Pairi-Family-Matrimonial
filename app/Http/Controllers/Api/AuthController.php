@@ -29,8 +29,29 @@ public function register(Request $request): JsonResponse
             'email' => 'required|email|unique:users,email',
             'phone' => 'required|string|max:20|unique:users,phone',
             'password' => 'required|string|min:6',
-            'referral_code' => 'nullable|string|exists:users,referral_code',
+            // 'referral_code' => 'nullable|string|exists:users,referral_code',
+            'referral_link' => 'nullable|string',
         ]);
+
+        $referralCode = null;
+
+        if ($request->filled('referral_link')) {
+            $referralCode = basename(parse_url($request->referral_link, PHP_URL_PATH));
+
+            if (!preg_match('/^[A-Z0-9]{8}$/', $referralCode)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid referral link.',
+                ], 422);
+            }
+
+            if (!User::where('referral_code', $referralCode)->exists()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Referral link not found.',
+                ], 422);
+            }
+        }
 
         $otp = $this->generateOtp(6);
         $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
@@ -42,7 +63,7 @@ public function register(Request $request): JsonResponse
                 'email' => $request->email,
                 'phone' => $request->phone,
                 'password' => $request->password,
-                'referral_code' => $request->referral_code,
+                'referral_code' => $referralCode,
 
                 'otp' => $otp,
                 'otp_expires_at' => now()->addMinutes(10)->toDateTimeString(),
@@ -60,7 +81,7 @@ public function register(Request $request): JsonResponse
                 'name' => $request->name,
                 'email' => $request->email,
                 'phone' => $request->phone,
-                'referral_code' => $request->referral_code,
+                'referral_code' => $referralCode,
             ],
             'resend_after_seconds' => $resendSeconds,
         ], 200);
@@ -458,6 +479,100 @@ public function registerComplete(Request $request): JsonResponse
     }
 }
 
+public function forgotResendEmailOtp(Request $request): JsonResponse
+{
+    try {
+
+        $request->validate([
+            'email' => 'required|email|exists:users,email'
+        ]);
+
+        $resendSeconds = config(
+            'pairi_family.otp_resend_seconds',
+            45
+        );
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found.'
+            ], 404);
+        }
+
+        // Check resend timer
+        if (
+            $user->otp_resend_available_at &&
+            $user->otp_resend_available_at->isFuture()
+        ) {
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Please wait before requesting a new code.',
+                'resend_after_seconds' =>
+                    now()->diffInSeconds(
+                        $user->otp_resend_available_at
+                    ),
+            ], 429);
+        }
+
+        // Generate new OTP
+        $otp = $this->generateOtp(6);
+
+        // IMPORTANT:
+        // Store in reset_otp because verifyResetOtp checks reset_otp
+        $user->update([
+            'reset_otp' => $otp,
+            'reset_token_expires_at' => now()->addMinutes(10),
+            'otp_resend_available_at' => now()->addSeconds($resendSeconds),
+            'reset_code_verified' => false,
+        ]);
+
+        Log::info('Forgot password OTP resent.', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+        ]);
+
+        $this->sendOtpEmail(
+            $user->email,
+            $otp,
+            'Password Reset OTP - Piyari Family'
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'OTP resend successfully.',
+            'resend_after_seconds' => $resendSeconds,
+        ], 200);
+
+    } catch (ValidationException $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->validator->errors()->first(),
+        ], 422);
+
+    } catch (\Exception $e) {
+
+        Log::error('Forgot password resend OTP error.', [
+            'message' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to resend OTP.',
+            'error' => config('app.debug')
+                ? $e->getMessage()
+                : null,
+        ], 500);
+    }
+}
+
+
+
     public function login(Request $request): JsonResponse
     {
         try {
@@ -526,7 +641,7 @@ public function registerComplete(Request $request): JsonResponse
         $user->save();
 
         // Send OTP email
-        $this->sendOtpEmail($user->email, $otp, 'Password Reset - Pairi Family');
+        $this->sendOtpEmail($user->email, $otp, 'Password Reset - Piyari Family');
 
         return response()->json([
             'success' => 200,
@@ -922,6 +1037,18 @@ public function profile(Request $request): JsonResponse
             $mainPhoto = $user->profile_photo ?? null;
         }
 
+        $membershipBadge = null;
+        $planType = 'Free';
+        $discountEligible = false;
+        try {
+            $accessService = app(\App\Services\SubscriptionAccessService::class);
+            $membershipBadge = $accessService->membershipBadge($user);
+            $planType = $accessService->activePlan($user)?->type ?? 'Free';
+            $discountEligible = app(\App\Services\ProfileCompletionService::class)->isEligibleForDiscount($user);
+        } catch (\Throwable $e) {
+            // Keep profile payload intact if membership lookup fails.
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -946,6 +1073,9 @@ public function profile(Request $request): JsonResponse
                 'gender'     => $user->gender,       // ✅ Added
                 'marital_status' => $user->marital_status, // ✅ Added
                 'profile_step' => $user->profile_step,     // ✅ Added
+                'membership_badge' => $membershipBadge,
+                'plan_type' => $planType,
+                'discount_eligible' => $discountEligible,
             ]
         ], 200);
 

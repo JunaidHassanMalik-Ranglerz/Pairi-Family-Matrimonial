@@ -10,8 +10,9 @@ class SubscriptionController extends Controller
 {
     public function index()
     {
-        $subscriptions = Subscription::whereIn('type', ['Free', 'VIP', 'VVIP'])
-            ->orderByRaw("FIELD(type, 'Free', 'VIP', 'VVIP')")
+        $types = array_keys(config('subscription_plans.user_plans', ['Free' => [], 'VIP' => [], 'VVIP' => []]));
+        $subscriptions = Subscription::whereIn('type', $types)
+            ->orderByRaw("FIELD(type, '".implode("','", $types)."')")
             ->get();
 
         return view('admin.subscriptions.index', compact('subscriptions'));
@@ -20,7 +21,7 @@ class SubscriptionController extends Controller
     public function create()
     {
         return redirect()->route('admin.subscriptions.index')->with([
-            'message' => 'New subscription plans cannot be created. Only Free, VIP and VVIP plans are allowed.',
+            'message' => 'New subscription plans cannot be created. Only configured user plans are allowed.',
             'alert-type' => 'error',
         ]);
     }

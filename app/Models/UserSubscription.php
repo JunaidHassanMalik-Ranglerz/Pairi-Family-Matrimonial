@@ -13,6 +13,9 @@ class UserSubscription extends Model
         'starts_at' => 'datetime',
         'expires_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'original_price' => 'decimal:2',
+        'amount_payable' => 'decimal:2',
+        'discount_percent' => 'integer',
     ];
 
     public function user(): BelongsTo

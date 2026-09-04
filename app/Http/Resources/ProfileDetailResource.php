@@ -21,6 +21,7 @@ class ProfileDetailResource extends JsonResource
             'city' => $this->city,
             'country' => $this->country,
             'location' => trim(implode(', ', array_filter([$this->city, $this->country]))),
+            'distance_km' => $this->distance_km ?? null,
             'profile_photo' => $this->profile_photo,
             'photos' => $photos,
             'is_verified' => (bool) $this->is_verified,
@@ -55,6 +56,20 @@ class ProfileDetailResource extends JsonResource
             'interest_sent' => (bool) ($this->interest_sent ?? false),
             'interest_received' => (bool) ($this->interest_received ?? false),
             'mutual_match' => (bool) ($this->mutual_match ?? false),
+            'membership_badge' => $this->membershipBadge(),
         ];
+    }
+
+    private function membershipBadge(): ?string
+    {
+        try {
+            if (!$this->resource instanceof \App\Models\User) {
+                return null;
+            }
+
+            return app(\App\Services\SubscriptionAccessService::class)->membershipBadge($this->resource);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 }

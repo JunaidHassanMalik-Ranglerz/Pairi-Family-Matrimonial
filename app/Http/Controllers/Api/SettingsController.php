@@ -24,10 +24,12 @@ class SettingsController extends Controller
                 'user' => UserResource::toPayload($user),
                 'subscription' => $activeSub ? [
                     'plan_name' => $activeSub->plan->name ?? 'Free',
+                    'plan_type' => $activeSub->plan->type ?? 'Free',
                     'status' => $activeSub->status,
                     'is_active' => $activeSub->isActive(),
                     'expires_at' => $activeSub->expires_at?->format('d M Y'),
-                ] : ['plan_name' => 'Free', 'status' => 'free', 'is_active' => true],
+                    'membership_badge' => app(\App\Services\SubscriptionAccessService::class)->membershipBadge($user),
+                ] : ['plan_name' => 'Free', 'plan_type' => 'Free', 'status' => 'free', 'is_active' => true, 'membership_badge' => null],
                 'refer_and_earn' => [
                     'title' => 'Refer & Earn',
                     'subtitle' => 'Invite friends and earn rewards',

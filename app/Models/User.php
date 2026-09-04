@@ -132,6 +132,19 @@ class User extends Authenticatable
         return $this->hasMany(UserSubscription::class);
     }
 
+    public function scopeWithActivePlan($query)
+    {
+        return $query->with(['subscriptions' => function ($q) {
+            $q->with('plan')
+                ->whereIn('status', ['verified', 'free'])
+                ->whereNull('cancelled_at')
+                ->where(function ($sub) {
+                    $sub->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                })
+                ->latest();
+        }]);
+    }
+
     public function notifications(): HasMany
     {
         return $this->hasMany(UserNotification::class);
@@ -144,6 +157,12 @@ class User extends Authenticatable
 
     public function activeSubscription(): ?UserSubscription
     {
+        if ($this->relationLoaded('subscriptions')) {
+            return $this->subscriptions
+                ->sortByDesc('id')
+                ->first(fn ($subscription) => $subscription->isActive());
+        }
+
         return $this->subscriptions()
             ->with('plan')
             ->whereIn('status', ['verified', 'free'])

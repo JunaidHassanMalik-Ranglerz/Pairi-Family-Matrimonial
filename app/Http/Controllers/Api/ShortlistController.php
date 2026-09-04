@@ -6,11 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ProfileCardResource;
 use App\Models\ProfileInterest;
 use App\Models\User;
+use App\Services\MatchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ShortlistController extends Controller
 {
+    public function __construct(private MatchService $matchService)
+    {
+    }
+
     public function index(Request $request): JsonResponse
     {
         try {
@@ -24,6 +29,7 @@ class ShortlistController extends Controller
                     ->pluck('from_user_id');
 
                 $users = User::query()
+                    ->withActivePlan()
                     ->whereIn('id', $userIds)
                     ->where('status', 'active')
                     ->latest()
@@ -35,11 +41,14 @@ class ShortlistController extends Controller
                     ->pluck('to_user_id');
 
                 $users = User::query()
+                    ->withActivePlan()
                     ->whereIn('id', $userIds)
                     ->where('status', 'active')
                     ->latest()
                     ->get();
             }
+
+            $this->matchService->attachDistances($viewer, $users);
 
             return response()->json([
                 'success' => 200,

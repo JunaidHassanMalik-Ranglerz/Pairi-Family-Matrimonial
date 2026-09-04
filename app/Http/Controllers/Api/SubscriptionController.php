@@ -4,21 +4,28 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
+use App\Models\User;
 use App\Models\UserSubscription;
+use App\Services\ProfileCompletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class SubscriptionController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         try {
             $plans = Subscription::where('status', 'active')->orderBy('price')->get();
+            $user = $request->user();
 
             return response()->json([
                 'success' => 200,
-                'plans' => $plans->map(fn ($plan) => $this->formatPlan($plan)),
+                'plans' => $plans->map(fn ($plan) => $this->formatPlan($plan, $user)),
                 'comparison' => $this->comparisonMatrix($plans),
+                'profile_completion' => $user
+                    ? app(ProfileCompletionService::class)->summary($user)
+                    : null,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -47,10 +54,11 @@ class SubscriptionController extends Controller
                 return response()->json([
                     'success' => 200,
                     'has_subscription' => false,
-                    'plan' => $freePlan ? $this->formatPlan($freePlan) : null,
+                    'plan' => $freePlan ? $this->formatPlan($freePlan, $user) : null,
                     'status' => 'free',
                     'is_active' => true,
                     'access' => $access,
+                    'profile_completion' => app(ProfileCompletionService::class)->summary($user),
                     'message' => 'You are on the Free plan.',
                 ], 200);
             }
@@ -67,9 +75,13 @@ class SubscriptionController extends Controller
                     'expires_at' => $subscription->expires_at?->toIso8601String(),
                     'next_billing' => $subscription->expires_at?->format('d M Y'),
                     'cancelled_at' => $subscription->cancelled_at?->toIso8601String(),
-                    'plan' => $subscription->plan ? $this->formatPlan($subscription->plan) : null,
+                    'plan' => $subscription->plan ? $this->formatPlan($subscription->plan, $user) : null,
+                    'original_price' => $subscription->original_price !== null ? (float) $subscription->original_price : null,
+                    'amount_payable' => $subscription->amount_payable !== null ? (float) $subscription->amount_payable : null,
+                    'discount_percent' => (int) ($subscription->discount_percent ?? 0),
                 ],
                 'access' => $access,
+                'profile_completion' => app(ProfileCompletionService::class)->summary($user),
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -137,26 +149,45 @@ class SubscriptionController extends Controller
 
             $isFree = (float) $plan->price <= 0;
             $status = $isFree ? 'free' : 'paid';
+            $pricing = app(ProfileCompletionService::class)->pricingFor($user, $plan);
 
-            $subscription = UserSubscription::create([
+            $subscriptionData = [
                 'user_id' => $user->id,
                 'subscription_id' => $plan->id,
                 'status' => $status,
                 'payment_method' => $data['payment_method'] ?? null,
                 'starts_at' => $isFree ? now() : null,
                 'expires_at' => $isFree ? $plan->expiresAtFrom(now()) : null,
-            ]);
+            ];
+
+            if (Schema::hasColumn('user_subscriptions', 'original_price')) {
+                $subscriptionData['original_price'] = $pricing['original_price'];
+                $subscriptionData['amount_payable'] = $pricing['payable_price'];
+                $subscriptionData['discount_percent'] = $pricing['discount_percent'];
+                $subscriptionData['discount_reason'] = $pricing['discount_reason'];
+            }
+
+            $subscription = UserSubscription::create($subscriptionData);
 
             return response()->json([
                 'success' => 200,
                 'message' => $isFree
                     ? 'Free plan activated successfully.'
-                    : 'Subscription request submitted. Please upload payment screenshot.',
+                    : ($pricing['discount_applied']
+                        ? 'Subscription request submitted with 50% profile-completion discount. Please upload payment screenshot.'
+                        : 'Subscription request submitted. Please upload payment screenshot.'),
                 'subscription' => [
                     'id' => $subscription->id,
                     'status' => $subscription->status,
-                    'plan' => $this->formatPlan($plan),
+                    'plan' => $this->formatPlan($plan, $user),
                     'requires_payment_upload' => !$isFree,
+                    'pricing' => [
+                        'original_price' => $pricing['original_price'],
+                        'payable_price' => $pricing['payable_price'],
+                        'discount_percent' => $pricing['discount_percent'],
+                        'discount_applied' => $pricing['discount_applied'],
+                        'discount_reason' => $pricing['discount_reason'],
+                    ],
                 ],
             ], 201);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -239,15 +270,33 @@ class SubscriptionController extends Controller
         }
     }
 
-    private function formatPlan(Subscription $plan): array
+    private function formatPlan(Subscription $plan, ?User $user = null): array
     {
         $features = $plan->features ?? [];
+        $original = (float) $plan->price;
+        $pricing = $user
+            ? app(ProfileCompletionService::class)->pricingFor($user, $plan)
+            : [
+                'original_price' => $original,
+                'payable_price' => $original,
+                'discount_percent' => 0,
+                'discount_applied' => false,
+                'discount_eligible' => false,
+                'discount_reason' => null,
+            ];
 
         return [
             'id' => $plan->id,
             'name' => $plan->name,
-            'price' => (float) $plan->price,
-            'price_label' => 'PKR ' . number_format($plan->price, 0),
+            'price' => $original,
+            'price_label' => 'PKR ' . number_format($original, 0),
+            'original_price' => $pricing['original_price'],
+            'discounted_price' => $pricing['payable_price'],
+            'payable_price' => $pricing['payable_price'],
+            'payable_price_label' => 'PKR ' . number_format($pricing['payable_price'], 0),
+            'discount_percent' => $pricing['discount_percent'],
+            'discount_applied' => $pricing['discount_applied'],
+            'discount_eligible' => $pricing['discount_eligible'],
             'duration' => (int) $plan->duration_days,
             'duration_unit' => $plan->duration_unit ?? 'days',
             'duration_label' => $plan->durationLabel(),
@@ -268,6 +317,7 @@ class SubscriptionController extends Controller
             ['key' => 'chat_limit', 'label' => 'Chats'],
             ['key' => 'boosts_per_month', 'label' => 'Profile Boosts'],
             ['key' => 'super_likes_per_day', 'label' => 'Super Likes'],
+            ['key' => 'basic_badge', 'label' => 'Basic Badge'],
             ['key' => 'vip_badge', 'label' => 'VIP Badge'],
             ['key' => 'vvip_badge', 'label' => 'VVIP Badge'],
         ];

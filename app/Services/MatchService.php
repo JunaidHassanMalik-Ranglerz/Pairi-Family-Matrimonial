@@ -8,6 +8,10 @@ use Illuminate\Support\Collection;
 
 class MatchService
 {
+    public function __construct(private GoogleDistanceService $distanceService)
+    {
+    }
+
     public function newProfileDays(): int
     {
         return (int) config('pairi_family.new_profile_days', 3);
@@ -38,7 +42,8 @@ class MatchService
             ->where('status', 'active')
             ->where('profile_completed', true)
             ->when($opposite, fn (Builder $q) => $q->where('gender', $opposite))
-            ->when($excludedIds->isNotEmpty(), fn (Builder $q) => $q->whereNotIn('id', $excludedIds));
+            ->when($excludedIds->isNotEmpty(), fn (Builder $q) => $q->whereNotIn('id', $excludedIds))
+            ->withActivePlan();
     }
 
     public function applyFilters(Builder $query, User $viewer, array $filters): Builder
@@ -198,5 +203,33 @@ class MatchService
 
             return $b->match_score <=> $a->match_score;
         })->values();
+    }
+
+    public function attachDistances(User $viewer, Collection $profiles): Collection
+    {
+        foreach ($profiles as $profile) {
+            $profile->distance_km = null;
+        }
+
+        if (!$this->distanceService->isValidCoordinate($viewer->latitude, $viewer->longitude)) {
+            return $profiles;
+        }
+
+        $destinations = $profiles->map(fn (User $profile) => [
+            'lat' => $profile->latitude,
+            'lng' => $profile->longitude,
+        ])->all();
+
+        $distances = $this->distanceService->distancesFromOrigin(
+            (float) $viewer->latitude,
+            (float) $viewer->longitude,
+            $destinations
+        );
+
+        foreach ($profiles as $index => $profile) {
+            $profile->distance_km = $distances[$index] ?? null;
+        }
+
+        return $profiles;
     }
 }

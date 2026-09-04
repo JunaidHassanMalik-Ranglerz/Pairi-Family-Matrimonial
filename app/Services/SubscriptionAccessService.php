@@ -50,11 +50,26 @@ class SubscriptionAccessService
             'super_likes_per_day' => $superLikes,
             'can_super_like' => ($superLikes === null) || (int) $superLikes > 0,
             'unlimited_super_likes' => $superLikes === null,
+            'basic_badge' => (bool) ($features['basic_badge'] ?? false),
             'vip_badge' => (bool) ($features['vip_badge'] ?? false),
             'vvip_badge' => (bool) ($features['vvip_badge'] ?? false),
+            'membership_badge' => $this->membershipBadge($user),
             'see_who_liked' => (bool) ($features['see_who_liked'] ?? false),
             'display_features' => $features['display'] ?? [],
         ];
+    }
+
+    public function membershipBadge(User $user): ?string
+    {
+        $plan = $user->activeSubscription()?->plan;
+
+        if (!$plan || $plan->type === 'Free' || (float) $plan->price <= 0) {
+            return null;
+        }
+
+        $badge = $plan->badge ?: $plan->type;
+
+        return in_array($badge, ['Basic', 'VIP', 'VVIP'], true) ? $badge : $plan->type;
     }
 
     public function can(User $user, string $feature): bool
@@ -67,6 +82,7 @@ class SubscriptionAccessService
             'boost', 'boosts' => $access['can_boost'],
             'super_like', 'super_likes' => $access['can_super_like'],
             'see_who_liked' => $access['see_who_liked'],
+            'basic_badge' => $access['basic_badge'] ?? false,
             'vip_badge' => $access['vip_badge'],
             'vvip_badge' => $access['vvip_badge'],
             default => false,

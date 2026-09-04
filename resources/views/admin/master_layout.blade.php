@@ -139,6 +139,8 @@
         </div>
     </div>
 
+    @stack('modals')
+
     @include('admin.partials.javascripts')
 
     @stack('js')

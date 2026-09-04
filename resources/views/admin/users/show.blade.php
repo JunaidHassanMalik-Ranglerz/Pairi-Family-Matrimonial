@@ -116,7 +116,7 @@
                             </table>
                         </div>
 
-                        <div class="tab-pane fade" id="photos">
+                        <div class="tab-pane fade" id="photos">f
                             @if(!empty($user->photos))
                             <div class="row">
                                 @foreach($user->photos as $photo)
@@ -147,6 +147,7 @@
                                         <tr>
                                             <th>Plan Name</th>
                                             <th>Price</th>
+                                            <th>Payable</th>
                                             <th>Status</th>
                                             <th>Purchased On</th>
                                             <th>Action</th>
@@ -156,7 +157,17 @@
                                         @foreach($userSubscriptions as $sub)
                                         <tr>
                                             <td>{{ $sub->plan_name }}</td>
-                                            <td>${{ number_format($sub->plan_price, 2) }}</td>
+                                            <td>PKR {{ number_format($sub->plan_price, 2) }}</td>
+                                            <td>
+                                                @if(!is_null($sub->amount_payable))
+                                                    PKR {{ number_format($sub->amount_payable, 2) }}
+                                                    @if((int) ($sub->discount_percent ?? 0) > 0)
+                                                        <br><small class="text-success">{{ (int) $sub->discount_percent }}% profile discount</small>
+                                                    @endif
+                                                @else
+                                                    PKR {{ number_format($sub->plan_price, 2) }}
+                                                @endif
+                                            </td>
                                             <td>
                                                 @if($sub->status == 'verified' || $sub->status == 'free')
                                                     <span class="badge badge-success">{{ ucfirst($sub->status) }}</span>
@@ -256,11 +267,21 @@ $(document).on('click', '.toggle-status-btn', function() {
     postAction($(this).data('url'), $(this));
 });
 
-$('#verifySubscriptionModal').on('show.bs.modal', function (event) {
-    var button = $(event.relatedTarget);
-    var subId = button.data('sub-id');
-    var modal = $(this);
-    modal.find('#verify_sub_id').val(subId);
+$(document).on('click', '[data-bs-target="#verifySubscriptionModal"]', function (e) {
+    e.preventDefault();
+    var subId = $(this).data('sub-id');
+    $('#verify_sub_id').val(subId);
+
+    var modalEl = document.getElementById('verifySubscriptionModal');
+    if (!modalEl) {
+        return;
+    }
+
+    if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    } else if (typeof $(modalEl).modal === 'function') {
+        $(modalEl).modal('show');
+    }
 });
 
 $('#verifySubscriptionForm').on('submit', function(e) {

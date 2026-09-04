@@ -12,7 +12,7 @@
             --}}
         </div>
         <div class="section-body">
-            <p class="text-muted mb-3">Only 3 fixed plans are available. You can edit <strong>Price</strong> and <strong>Duration</strong> only. Features are read-only.</p>
+            <p class="text-muted mb-3">Fixed user plans are available. You can edit <strong>Price</strong> and <strong>Duration</strong> only. Features are read-only. Profile-completion discounts are applied at purchase time and do not change these listed prices.</p>
             <div class="card">
                 <div class="card-body">
                     <table class="table table-striped data-table" id="subscriptionsTable">

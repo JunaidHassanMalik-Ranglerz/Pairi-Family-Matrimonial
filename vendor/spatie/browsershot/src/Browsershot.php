@@ -10,11 +10,12 @@ use Spatie\Browsershot\Exceptions\FileUrlNotAllowed;
 use Spatie\Browsershot\Exceptions\HtmlIsNotAllowedToContainFile;
 use Spatie\Browsershot\Exceptions\RemoteConnectionException;
 use Spatie\Browsershot\Exceptions\UnsuccessfulResponse;
+use Spatie\Image\Image;
 use Spatie\TemporaryDirectory\TemporaryDirectory;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
-/** @mixin \Spatie\Image\Image */
+/** @mixin Image */
 class Browsershot
 {
     protected ?string $nodeBinary = null;
@@ -76,7 +77,6 @@ class Browsershot
         'file:\\',
         'file:\\\\',
         'view-source',
-        '\\\\',
     ];
 
     /** @var array<string,string> */
@@ -287,6 +287,11 @@ class Browsershot
         return $this;
     }
 
+    public function evaluateOnNewDocument(string $pageFunction): static
+    {
+        return $this->setOption('evaluateOnNewDocument', $pageFunction);
+    }
+
     public function setUrl(string $url): static
     {
         $url = trim($url);
@@ -342,7 +347,11 @@ class Browsershot
                 }
             }
 
-            if (preg_match('#//\s*(localhost[/:\s]|127\.|0\.0\.0\.0[/:\s]|\[::1][/:\s]|::1[/:\s])#i', $content)) {
+            if (preg_match('#(?<!:)//\s*(localhost[/:\s]|127\.|0\.0\.0\.0[/:\s]|\[::1][/:\s]|::1[/:\s])#i', $content)) {
+                throw HtmlIsNotAllowedToContainFile::make();
+            }
+
+            if (preg_match('#\\\\\\\\\s*(localhost[/\\\\\s]|127\.|0\.0\.0\.0[/\\\\\s]|\[::1][/\\\\\s]|::1[/\\\\\s])#i', $content)) {
                 throw HtmlIsNotAllowedToContainFile::make();
             }
         }

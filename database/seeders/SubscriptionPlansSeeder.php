@@ -27,8 +27,7 @@ class SubscriptionPlansSeeder extends Seeder
             );
         }
 
-        // Remove any extra user plans beyond the fixed 3
-        Subscription::whereNotIn('type', ['Free', 'VIP', 'VVIP'])->delete();
+        Subscription::whereNotIn('type', array_keys(config('subscription_plans.user_plans')))->delete();
 
         $mb = config('subscription_plans.mb_plan');
         MarriageBureauSubscriptionPlan::query()->delete();
