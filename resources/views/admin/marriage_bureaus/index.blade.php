@@ -41,7 +41,24 @@
                                     </td>
                                     <td>{{ $bureau->created_at->format('d M, Y') }}</td>
                                     <td>
-                                        <a href="{{ route('admin.marriage-bureaus.show', $bureau->id) }}" class="btn btn-primary btn-sm"><i class="fas fa-eye"></i> View</a>
+                                        <div class="table-actions">
+                                            <a href="{{ route('admin.marriage-bureaus.show', $bureau->id) }}" class="btn btn-primary btn-sm" title="View">
+                                                <i class="fas fa-eye"></i>
+                                            </a>
+                                            <form action="{{ route('admin.marriage-bureaus.update', $bureau->id) }}" method="POST" class="d-inline">
+                                                @csrf
+                                                @method('PUT')
+                                                <input type="hidden" name="status" value="{{ $bureau->status === 'active' ? 'inactive' : 'active' }}">
+                                                <button type="submit" class="btn btn-{{ $bureau->status === 'active' ? 'warning' : 'success' }} btn-sm" title="{{ $bureau->status === 'active' ? 'Deactivate' : 'Activate' }}">
+                                                    <i class="fas fa-{{ $bureau->status === 'active' ? 'ban' : 'check' }}"></i>
+                                                </button>
+                                            </form>
+                                            <x-admin.delete-button
+                                                class="deleteForm"
+                                                data-url="{{ route('admin.marriage-bureaus.destroy', $bureau->id) }}"
+                                                title="Delete"
+                                            />
+                                        </div>
                                     </td>
                                 </tr>
                                 @endforeach

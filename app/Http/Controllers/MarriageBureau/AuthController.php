@@ -22,6 +22,19 @@ class AuthController extends Controller
             'password' => 'required'
         ]);
 
+        $bureau = MarriageBureau::where('email', $credentials['email'])->first();
+        if (
+            $bureau
+            && $bureau->status !== 'active'
+            && Hash::check($credentials['password'], $bureau->password)
+        ) {
+            return back()->withErrors([
+                'email' => 'Your account has been deactivated. Please contact the admin.',
+            ])->onlyInput('email');
+        }
+
+        $credentials['status'] = 'active';
+
         if (Auth::guard('marriage_bureau')->attempt($credentials)) {
             $request->session()->regenerate();
 

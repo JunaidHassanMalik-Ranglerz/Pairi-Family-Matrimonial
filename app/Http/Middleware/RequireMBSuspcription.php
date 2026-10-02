@@ -17,6 +17,16 @@ class RequireMBSuspcription
             return redirect()->route('marriage-bureau.login');
         }
 
+        if ($bureau->status !== 'active') {
+            Auth::guard('marriage_bureau')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect()->route('marriage-bureau.login')->withErrors([
+                'email' => 'Your account has been deactivated. Please contact the admin.',
+            ]);
+        }
+
         $activeSub = MarriageBureauSubscription::where('marriage_bureau_id', $bureau->id)
             ->where('status', 'verified')
             ->first();

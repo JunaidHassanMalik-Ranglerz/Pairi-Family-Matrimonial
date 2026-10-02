@@ -33,6 +33,16 @@ class MatchController extends Controller
                 ->latest('created_at')
                 ->limit(100)
                 ->get();
+            $fallbackUsed = false;
+
+            if ($candidates->isEmpty()) {
+                $candidates = $this->matchService
+                    ->fallbackQuery($viewer)
+                    ->latest('created_at')
+                    ->limit(100)
+                    ->get();
+                $fallbackUsed = $candidates->isNotEmpty();
+            }
 
             $ranked = $this->matchService->rankProfilesForHome($viewer, $candidates);
 
@@ -49,6 +59,7 @@ class MatchController extends Controller
                 'top_match' => $topMatch ? ProfileCardResource::make($topMatch) : null,
                 'suggested_matches' => ProfileCardResource::collection($suggested),
                 'total_matches' => $ranked->count(),
+                'fallback_used' => $fallbackUsed,
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
@@ -63,6 +74,14 @@ class MatchController extends Controller
     {
         try {
             $viewer = $request->user();
+
+            if (!$viewer->gender) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please complete your profile gender to see matches.',
+                ], 422);
+            }
+
             $filters = $this->parseFilters($request);
 
             $query = $this->matchService->fallbackQuery($viewer);
@@ -79,6 +98,10 @@ class MatchController extends Controller
 
             return response()->json([
                 'success' => 200,
+                'fallback_used' => $fallbackUsed,
+                'message' => $fallbackUsed
+                    ? 'No exact match was found, so other opposite-gender profiles are shown.'
+                    : 'Matching profiles loaded.',
                 'filters_applied' => array_filter($filters, fn ($value) => $value !== null && $value !== '' && $value !== false),
                 'quick_filters' => [
                     'near_me' => 'Same city or within 50km',
@@ -125,6 +148,13 @@ class MatchController extends Controller
             }
 
             $candidates = $this->matchService->baseQuery($viewer)->limit(500)->get();
+            $fallbackUsed = false;
+
+            if ($candidates->isEmpty()) {
+                $candidates = $this->matchService->fallbackQuery($viewer)->limit(500)->get();
+                $fallbackUsed = $candidates->isNotEmpty();
+            }
+
             $ranked = $this->matchService->rankProfiles($viewer, $candidates);
             $top = $ranked->first();
 
@@ -142,6 +172,7 @@ class MatchController extends Controller
             return response()->json([
                 'success' => 200,
                 'match_score' => (int) $profile->match_score,
+                'fallback_used' => $fallbackUsed,
                 'profile' => ProfileDetailResource::make($profile),
             ], 200);
         } catch (\Exception $e) {

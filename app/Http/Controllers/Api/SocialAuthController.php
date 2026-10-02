@@ -39,10 +39,17 @@ class SocialAuthController extends Controller
 
             $user = User::where('email', $email)->first();
 
-            if ($user && $user->marriage_bureau_id) {
+            if ($user && ($user->marriage_bureau_id || !($user->can_login ?? true))) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This profile was created by a marriage bureau and cannot log in to the app. Please contact the bureau or create your own account.',
+                ], 403);
+            }
+
+            if ($user && $user->status !== 'active') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account has been deactivated. Please contact the admin.',
                 ], 403);
             }
 

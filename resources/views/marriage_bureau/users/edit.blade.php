@@ -38,6 +38,7 @@
 @endsection
 
 @push('js')
+@include('marriage_bureau.users._photo_selector_js')
 <script>
     $(function () {
         $('.select2-multi').select2({
@@ -46,6 +47,7 @@
         });
 
         initMbUserFormTabs(@json(session('active_tab', request('tab', 'tab-basic'))));
+        initMbPhotoSelector();
     });
 </script>
 @include('marriage_bureau.users._form_tabs_js')

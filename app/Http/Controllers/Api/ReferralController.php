@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\PhotoAccessRequest;
 use App\Models\RewardRedemption;
 use App\Models\Subscription;
 use App\Models\SystemSetting;
@@ -108,16 +109,24 @@ class ReferralController extends Controller
     {
         try {
             $user = $request->user();
-            $history = $user->referrals()->with('referredUser:id,name,image,photos')->latest()->get();
+            $history = $user->referrals()
+                ->with('referredUser:id,name,gender,image,photos,profile_photo_visible')
+                ->latest()
+                ->get();
 
             return response()->json([
                 'success' => 200,
-                'history' => $history->map(function ($referral) {
+                'history' => $history->map(function ($referral) use ($user) {
+                    $referredUser = $referral->referredUser;
+                    $photoVisible = $referredUser
+                        && ((bool) ($referredUser->profile_photo_visible ?? true)
+                            || PhotoAccessRequest::hasApprovedAccess((int) $user->id, (int) $referredUser->id));
+
                     return [
                         'id' => $referral->id,
                         'user_id' => $referral->referred_user_id,
                         'name' => $referral->referredUser->name ?? 'Unknown',
-                        'image' => $referral->referredUser->profile_photo ?? null,
+                        'image' => $photoVisible ? $referredUser->profile_photo : null,
                         'points_earned' => $referral->points_earned,
                         'status' => 'Registered',
                         'registered_at' => $referral->created_at->toDateTimeString(),

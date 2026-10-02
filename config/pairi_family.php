@@ -60,7 +60,8 @@ return [
         ['value' => 'female', 'label' => 'Female'],
     ],
 
-    'otp_resend_seconds' => 45,
+    'otp_expiry_minutes' => 5,
+    'otp_resend_seconds' => 300,
     'min_profile_photos' => 3,
     'new_profile_days' => 3,
 ];

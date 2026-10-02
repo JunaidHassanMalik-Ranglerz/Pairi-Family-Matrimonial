@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Log;
@@ -26,8 +27,8 @@ public function register(Request $request): JsonResponse
 
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email',
-            'phone' => 'required|string|max:20|unique:users,phone',
+            'email' => 'required|email',
+            'phone' => 'required|string|max:20',
             'password' => 'required|string|min:6',
             // 'referral_code' => 'nullable|string|exists:users,referral_code',
             'referral_link' => 'nullable|string',
@@ -54,7 +55,8 @@ public function register(Request $request): JsonResponse
         }
 
         $otp = $this->generateOtp(6);
-        $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
+        $expiresAt = $this->otpExpiresAt();
+        $resendSeconds = now()->diffInSeconds($expiresAt);
 
         Cache::put(
             $this->pendingRegistrationCacheKey($request->email),
@@ -84,6 +86,7 @@ public function register(Request $request): JsonResponse
                 'referral_code' => $referralCode,
             ],
             'resend_after_seconds' => $resendSeconds,
+            'expires_in_seconds' => $resendSeconds,
         ], 200);
 
     } catch (ValidationException $e) {
@@ -109,11 +112,41 @@ public function registerComplete(Request $request): JsonResponse
 
         $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email',
-            'phone' => 'required|string|max:20|unique:users,phone',
+            'email' => 'required|email',
+            'phone' => 'required|string|max:20',
             'password' => 'required|string|min:6',
+            'otp' => 'required|string|size:6',
             'referral_code' => 'nullable|string|exists:users,referral_code',
         ]);
+
+        $existingUser = User::where('email', $request->email)->first();
+        if ($existingUser?->is_verified) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account is already verified. Please log in.',
+            ], 409);
+        }
+
+        $request->validate([
+            'email' => [Rule::unique('users', 'email')->ignore($existingUser?->id)],
+            'phone' => [Rule::unique('users', 'phone')->ignore($existingUser?->id)],
+        ]);
+
+        $pending = Cache::get($this->pendingRegistrationCacheKey($request->email));
+        if (!$pending) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration OTP has expired. Please request a new OTP.',
+            ], 400);
+        }
+
+        $expiresAt = Carbon::parse($pending['otp_expires_at']);
+        if ($expiresAt->isPast() || !hash_equals((string) $pending['otp'], (string) $request->otp)) {
+            return response()->json([
+                'success' => false,
+                'message' => $expiresAt->isPast() ? 'OTP has expired. Please request a new OTP.' : 'Invalid OTP code.',
+            ], 400);
+        }
 
         $referrerId = null;
         if (!empty($request->referral_code)) {
@@ -123,17 +156,22 @@ public function registerComplete(Request $request): JsonResponse
             }
         }
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'password' => $request->password,
-            'is_verified' => true,
-            'email_verified_at' => now(),
-            'terms_accepted_at' => now(),
-            'status' => 'active',
-            'referred_by' => $referrerId,
-        ]);
+        $user = User::updateOrCreate(
+            ['email' => $request->email],
+            [
+                'name' => $request->name,
+                'phone' => $request->phone,
+                'password' => $request->password,
+                'is_verified' => true,
+                'email_verified_at' => now(),
+                'otp' => null,
+                'email_otp_expires_at' => null,
+                'otp_resend_available_at' => null,
+                'terms_accepted_at' => $existingUser?->terms_accepted_at ?? now(),
+                'status' => 'active',
+                'referred_by' => $referrerId ?? $existingUser?->referred_by,
+            ]
+        );
 
         Cache::forget($this->pendingRegistrationCacheKey($request->email));
 
@@ -358,25 +396,24 @@ public function registerComplete(Request $request): JsonResponse
             'email' => 'required|email'
         ]);
 
-        $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
-
         // Pending registration (not yet stored in users table)
         $cacheKey = $this->pendingRegistrationCacheKey($request->email);
         $pending = Cache::get($cacheKey);
 
         if ($pending) {
-            if (!empty($pending['otp_resend_available_at']) && now()->lessThan($pending['otp_resend_available_at'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Please wait before requesting a new code.',
-                    'resend_after_seconds' => now()->diffInSeconds($pending['otp_resend_available_at']),
-                ], 429);
+            $currentExpiry = !empty($pending['otp_expires_at'])
+                ? Carbon::parse($pending['otp_expires_at'])
+                : null;
+
+            if ($currentExpiry?->isFuture()) {
+                return $this->activeOtpResponse($currentExpiry, 'email');
             }
 
             $otp = $this->generateOtp(6);
+            $expiresAt = $this->otpExpiresAt();
             $pending['otp'] = $otp;
-            $pending['otp_expires_at'] = now()->addMinutes(10);
-            $pending['otp_resend_available_at'] = now()->addSeconds($resendSeconds);
+            $pending['otp_expires_at'] = $expiresAt;
+            $pending['otp_resend_available_at'] = $expiresAt;
 
             Cache::put($cacheKey, $pending, now()->addMinutes(30));
 
@@ -385,7 +422,8 @@ public function registerComplete(Request $request): JsonResponse
             return response()->json([
                 'success' => 200,
                 'message' => 'OTP resent to your email.',
-                'resend_after_seconds' => $resendSeconds,
+                'resend_after_seconds' => now()->diffInSeconds($expiresAt),
+                'expires_in_seconds' => now()->diffInSeconds($expiresAt),
             ], 200);
         }
 
@@ -412,19 +450,12 @@ public function registerComplete(Request $request): JsonResponse
             ], 400);
         }
 
-        if ($user->otp_resend_available_at && $user->otp_resend_available_at->isFuture()) {
-            Log::info('OTP resend blocked due to timer.', [
-                'available_at' => $user->otp_resend_available_at
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Please wait before requesting a new code.',
-                'resend_after_seconds' => now()->diffInSeconds($user->otp_resend_available_at),
-            ], 429);
+        if ($user->otp && $user->email_otp_expires_at?->isFuture()) {
+            return $this->activeOtpResponse($user->email_otp_expires_at, 'email');
         }
 
         $otp = $this->generateOtp(6);
+        $expiresAt = $this->otpExpiresAt();
 
         Log::info('Generated OTP.', [
             'otp' => $otp
@@ -432,8 +463,8 @@ public function registerComplete(Request $request): JsonResponse
 
         $user->update([
             'otp' => $otp,
-            'email_otp_expires_at' => now()->addMinutes(10),
-            'otp_resend_available_at' => now()->addSeconds($resendSeconds),
+            'email_otp_expires_at' => $expiresAt,
+            'otp_resend_available_at' => $expiresAt,
         ]);
 
         Log::info('User OTP updated in database.');
@@ -449,7 +480,8 @@ public function registerComplete(Request $request): JsonResponse
         return response()->json([
             'success' => 200,
             'message' => 'OTP resent to your email.',
-            'resend_after_seconds' => $resendSeconds,
+            'resend_after_seconds' => now()->diffInSeconds($expiresAt),
+            'expires_in_seconds' => now()->diffInSeconds($expiresAt),
         ], 200);
 
     } catch (ValidationException $e) {
@@ -588,7 +620,7 @@ public function forgotResendEmailOtp(Request $request): JsonResponse
                 return response()->json(['success' => false, 'message' => 'Password incorrect.'], 401);
             }
 
-            if ($user->marriage_bureau_id) {
+            if ($user->marriage_bureau_id || !($user->can_login ?? true)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'This profile was created by a marriage bureau and cannot log in to the app. Please contact the bureau or create your own account.',
@@ -652,17 +684,19 @@ public function forgotResendEmailOtp(Request $request): JsonResponse
         $request->validate(['email' => 'required|email|exists:users,email']);
 
         $user = User::where('email', $request->email)->first();
-        
+
+        if ($user->reset_otp && $user->reset_token_expires_at?->isFuture()) {
+            return $this->activeOtpResponse($user->reset_token_expires_at, 'email');
+        }
+
         // Generate 6-digit OTP
         $otp = $this->ForgetgenerateOtp(6);
-        $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
+        $expiresAt = $this->otpExpiresAt();
 
         // Update user with OTP
-        $user->otp = $otp;
-        $user->email_otp_expires_at = now()->addMinutes(10);
+        $user->reset_otp = $otp;
+        $user->reset_token_expires_at = $expiresAt;
         $user->reset_code_verified = false;
-        $user->otp_resend_available_at = now()->addSeconds($resendSeconds);
-		$user->is_verified = 0; // Reset verification status
         $user->save();
 
         // Send OTP email
@@ -671,7 +705,8 @@ public function forgotResendEmailOtp(Request $request): JsonResponse
         return response()->json([
             'success' => 200,
             'message' => 'Reset code sent to your email.',
-            'resend_after_seconds' => $resendSeconds,
+            'resend_after_seconds' => now()->diffInSeconds($expiresAt),
+            'expires_in_seconds' => now()->diffInSeconds($expiresAt),
         ], 200);
         
     } catch (ValidationException $e) {
@@ -706,21 +741,22 @@ public function verifyResetOtp(Request $request): JsonResponse
 
         $request->validate([
             'email' => 'required|email|exists:users,email',
+            'otp' => 'required|string|size:6',
         ]);
 
         $user = User::where('email', $request->email)->first();
 
         // Check OTP
-        if (empty($user->otp) || $user->otp != $request->otp) {
+        if (empty($user->reset_otp) || $user->reset_otp != $request->otp) {
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid OTP code.',
             ], 400);
         }
 
-        // Check expiry (10 minutes)
+        // Check expiry
         if (
-            !empty($user->reset_token_expires_at) &&
+            empty($user->reset_token_expires_at) ||
             Carbon::parse($user->reset_token_expires_at)->lt(now())
         ) {
             return response()->json([
@@ -732,7 +768,6 @@ public function verifyResetOtp(Request $request): JsonResponse
         // Mark OTP verified
         $user->update([
             'reset_code_verified' => true,
-            'is_verified' => 1,
         ]);
 
         return response()->json([
@@ -762,11 +797,16 @@ public function verifyResetOtp(Request $request): JsonResponse
         try {
             $request->validate([
                 'email' => 'required|email|exists:users,email',
+                'password' => ['required', 'string', Password::min(6)],
             ]);
 
             $user = User::where('email', $request->email)->first();
 
-            if (!$user->reset_code_verified || ($user->reset_token_expires_at && $user->reset_token_expires_at->isPast())) {
+            if (
+                !$user->reset_code_verified
+                || !$user->reset_token_expires_at
+                || $user->reset_token_expires_at->isPast()
+            ) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Please verify your reset code first.',
@@ -801,11 +841,17 @@ public function verifyResetOtp(Request $request): JsonResponse
         try {
             $request->validate([
                 'email' => 'required|email|exists:users,email',
+                'otp' => 'required|string|size:6',
+                'password' => ['required', 'string', Password::min(6)],
 				]);
 
             $user = User::where('email', $request->email)->first();
 
-            if ($user->reset_otp !== $request->otp || ($user->reset_token_expires_at && $user->reset_token_expires_at->isPast())) {
+            if (
+                !$user->reset_token_expires_at
+                || $user->reset_token_expires_at->isPast()
+                || !hash_equals((string) $user->reset_otp, (string) $request->otp)
+            ) {
                 return response()->json(['success' => false, 'message' => 'Invalid or expired code.'], 400);
             }
 
@@ -888,30 +934,31 @@ public function verifyResetOtp(Request $request): JsonResponse
                 'message' => 'Phone is already verified.'
             ], 400);
         }
-            $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
-
-            if ($user->phone_otp_resend_available_at && $user->phone_otp_resend_available_at->isFuture()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Please wait before requesting a new code.',
-                    'resend_after_seconds' => now()->diffInSeconds($user->phone_otp_resend_available_at),
-                ], 429);
+            $requestedPhone = $request->input('phone', $user->phone);
+            if (
+                $user->phone_otp
+                && $user->phone_otp_expires_at?->isFuture()
+                && $requestedPhone === $user->phone
+            ) {
+                return $this->activeOtpResponse($user->phone_otp_expires_at, 'phone');
             }
 
             $otp = $this->generateOtp(6);
+            $expiresAt = $this->otpExpiresAt();
 
             $user->update([
-                'phone' => $request->phone,
+                'phone' => $requestedPhone,
                 'phone_otp' => $otp,
-                'phone_otp_expires_at' => now()->addMinutes(10),
-                'phone_otp_resend_available_at' => now()->addSeconds($resendSeconds),
+                'phone_otp_expires_at' => $expiresAt,
+                'phone_otp_resend_available_at' => $expiresAt,
                 'phone_verified' => false,
             ]);
 
             $response = [
                 'success' => 200,
                 'message' => 'Verification code sent to your phone.',
-                'resend_after_seconds' => $resendSeconds,
+                'resend_after_seconds' => now()->diffInSeconds($expiresAt),
+                'expires_in_seconds' => now()->diffInSeconds($expiresAt),
             ];
 
             if (config('app.debug')) {
@@ -934,32 +981,28 @@ public function verifyResetOtp(Request $request): JsonResponse
     {
         try {
             $user = $request->user();
-            $resendSeconds = config('pairi_family.otp_resend_seconds', 45);
-
             if ($user->phone_verified) {
                 return response()->json(['success' => false, 'message' => 'Phone is already verified.'], 400);
             }
 
-            if ($user->phone_otp_resend_available_at && $user->phone_otp_resend_available_at->isFuture()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Please wait before requesting a new code.',
-                    'resend_after_seconds' => now()->diffInSeconds($user->phone_otp_resend_available_at),
-                ], 429);
+            if ($user->phone_otp && $user->phone_otp_expires_at?->isFuture()) {
+                return $this->activeOtpResponse($user->phone_otp_expires_at, 'phone');
             }
 
             $otp = $this->generateOtp(6);
+            $expiresAt = $this->otpExpiresAt();
 
             $user->update([
                 'phone_otp' => $otp,
-                'phone_otp_expires_at' => now()->addMinutes(10),
-                'phone_otp_resend_available_at' => now()->addSeconds($resendSeconds),
+                'phone_otp_expires_at' => $expiresAt,
+                'phone_otp_resend_available_at' => $expiresAt,
             ]);
 
             $response = [
                 'success' => 200,
                 'message' => 'Verification code resent.',
-                'resend_after_seconds' => $resendSeconds,
+                'resend_after_seconds' => now()->diffInSeconds($expiresAt),
+                'expires_in_seconds' => now()->diffInSeconds($expiresAt),
             ];
 
             if (config('app.debug')) {
@@ -996,8 +1039,11 @@ public function verifyResetOtp(Request $request): JsonResponse
             'otp' => 'required|string|size:6'
         ]);
 
-        if ($user->phone_otp !== $request->otp || 
-            ($user->phone_otp_expires_at && $user->phone_otp_expires_at->isPast())) {
+        if (
+            !$user->phone_otp_expires_at
+            || $user->phone_otp_expires_at->isPast()
+            || !hash_equals((string) $user->phone_otp, (string) $request->otp)
+        ) {
             return response()->json([
                 'success' => false, 
                 'message' => 'Invalid or expired code.'
@@ -1039,11 +1085,13 @@ public function profile(Request $request): JsonResponse
     try {
         $user = $request->user();
 
-        $photos = collect($user->photos ?? [])->map(fn ($photo) => [
+        $photos = collect($user->photos ?? [])->map(fn ($photo, $index) => [
+            'index' => $index,
             'url' => media_url($photo['path'] ?? null),
             'path' => $photo['path'] ?? null,
             'is_main' => (bool) ($photo['is_main'] ?? false),
         ])->values()->all();
+        $mainPhotoIndex = collect($photos)->search(fn ($photo) => $photo['is_main']);
 
         // Get main photo URL
         $mainPhoto = null;
@@ -1082,7 +1130,10 @@ public function profile(Request $request): JsonResponse
                 'id'         => $user->id,
                 'name'       => $user->name,  // ✅ Added name
                 'image'      => $mainPhoto,   // ✅ Main profile photo
+                'main_photo_index' => $mainPhotoIndex === false ? null : $mainPhotoIndex,
                 'photos'     => $photos,
+                'profile_photo_visible' => (bool) ($user->profile_photo_visible ?? true),
+                'additional_photos_visible' => (bool) ($user->additional_photos_visible ?? true),
                 'education'  => $user->qualification,
                 'career'     => $user->job_title,
                 'religion'   => $user->religion,
@@ -1134,6 +1185,30 @@ public function profile(Request $request): JsonResponse
         return 'pending_registration_' . strtolower(trim($email));
     }
 
+    private function otpExpiresAt(): Carbon
+    {
+        return now()->addMinutes((int) config('pairi_family.otp_expiry_minutes', 5));
+    }
+
+    private function activeOtpResponse(Carbon $expiresAt, string $channel): JsonResponse
+    {
+        $remainingSeconds = max(1, now()->diffInSeconds($expiresAt));
+        $minutes = intdiv($remainingSeconds, 60);
+        $seconds = $remainingSeconds % 60;
+        $remainingText = $minutes > 0
+            ? "{$minutes} minute(s) {$seconds} second(s)"
+            : "{$seconds} second(s)";
+
+        return response()->json([
+            'success' => false,
+            'message' => "OTP has already been sent to your {$channel}. You can request a new OTP after {$remainingText}.",
+            'otp_active' => true,
+            'expires_in_seconds' => $remainingSeconds,
+            'expires_in_minutes' => (int) ceil($remainingSeconds / 60),
+            'can_request_new_otp_at' => $expiresAt->toIso8601String(),
+        ], 429);
+    }
+
     private function generateOtp(int $length): string
     {
         $max = (10 ** $length) - 1;
@@ -1151,6 +1226,7 @@ public function profile(Request $request): JsonResponse
                 'heading' => $heading,
                 'logoUrl' => $logoUrl,
                 'otp' => $otp,
+                'expiryMinutes' => (int) config('pairi_family.otp_expiry_minutes', 5),
                 'greeting' => 'Dear User,',
                 'messageLine' => str_contains($subject, 'Password Reset')
                     ? 'We received a request to reset your password. Use the code below to continue:'

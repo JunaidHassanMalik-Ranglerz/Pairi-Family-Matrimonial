@@ -49,6 +49,7 @@ class User extends Authenticatable
         'longitude' => 'float',
         'profile_photo_visible' => 'boolean',
         'additional_photos_visible' => 'boolean',
+        'can_login' => 'boolean',
         'profile_boost_until' => 'datetime',
         'reactivation_requested_at' => 'datetime',
     ];
@@ -68,12 +69,23 @@ class User extends Authenticatable
         $photos = $this->photos ?? [];
 
         if (empty($photos)) {
-            return $this->image ? media_url($this->image) : null;
+            return $this->image
+                ? media_url($this->image)
+                : $this->defaultProfilePhotoUrl();
         }
 
         $main = collect($photos)->firstWhere('is_main', true) ?? $photos[0];
 
-        return media_url($main['path'] ?? null);
+        return media_url($main['path'] ?? null) ?? $this->defaultProfilePhotoUrl();
+    }
+
+    private function defaultProfilePhotoUrl(): string
+    {
+        $fileName = strtolower((string) $this->gender) === 'female'
+            ? 'default-female.png'
+            : 'default-male.png';
+
+        return app_base_url() . '/assets/img/' . $fileName;
     }
 
     public function sentInterests(): HasMany

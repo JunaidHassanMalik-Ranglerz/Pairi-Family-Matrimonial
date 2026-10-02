@@ -226,12 +226,31 @@
                 </select>
                 <small class="form-text text-muted">Select one or more hobbies/interests configured by admin.</small>
             </div>
-            <div class="form-group col-md-6">
-                <label>Profile Photo</label>
-                <input type="file" name="photo" class="form-control" accept="image/*">
-                @if($u && $u->profile_photo)
-                    <img src="{{ $u->profile_photo }}" class="mt-2 rounded" style="width:90px;height:90px;object-fit:cover;">
+            <div class="form-group col-md-12">
+                <label>Profile Photos</label>
+                <p class="text-muted small mb-2">Select the radio button under an image to make it the main profile photo.</p>
+
+                @php($existingPhotos = array_values($u?->photos ?? []))
+                @if(count($existingPhotos))
+                    <div class="d-flex flex-wrap mb-3" style="gap:12px;">
+                        @foreach($existingPhotos as $photoIndex => $photo)
+                            <label class="border rounded p-2 text-center mb-0" style="width:120px;cursor:pointer;">
+                                <img src="{{ media_url($photo['path'] ?? null) }}" class="rounded mb-2" style="width:96px;height:96px;object-fit:cover;" alt="Profile photo">
+                                <span class="d-block">
+                                    <input type="radio" name="selected_photo" value="existing:{{ $photoIndex }}" {{ ($photo['is_main'] ?? false) ? 'checked' : '' }}>
+                                    Set as profile
+                                </span>
+                                @if($photo['is_main'] ?? false)
+                                    <span class="badge badge-success mt-1">Current Profile Photo</span>
+                                @endif
+                            </label>
+                        @endforeach
+                    </div>
                 @endif
+
+                <input id="mb-profile-photos" type="file" name="photos[]" class="form-control" accept="image/jpeg,image/png,image/jpg,image/webp" multiple>
+                <small class="form-text text-muted">You can upload multiple photos (maximum 10, 5MB each).</small>
+                <div id="mb-new-photo-previews" class="d-flex flex-wrap mt-3" style="gap:12px;"></div>
             </div>
         </div>
     </div>

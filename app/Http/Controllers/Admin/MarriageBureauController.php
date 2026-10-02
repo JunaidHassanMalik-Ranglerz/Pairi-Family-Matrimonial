@@ -3,7 +3,12 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\MarriageBureau;
+use App\Models\MarriageBureauSubscription;
+use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class MarriageBureauController extends Controller
 {
@@ -12,7 +17,7 @@ class MarriageBureauController extends Controller
      */
     public function index()
     {
-        $bureaus = \App\Models\MarriageBureau::latest()->get();
+        $bureaus = MarriageBureau::latest()->get();
         return view('admin.marriage_bureaus.index', compact('bureaus'));
     }
 
@@ -37,7 +42,7 @@ class MarriageBureauController extends Controller
      */
     public function show(string $id)
     {
-        $bureau = \App\Models\MarriageBureau::findOrFail($id);
+        $bureau = MarriageBureau::findOrFail($id);
         return view('admin.marriage_bureaus.show', compact('bureau'));
     }
 
@@ -64,7 +69,17 @@ class MarriageBureauController extends Controller
      */
     public function update(Request $request, string $id)
     {
-        //
+        $data = $request->validate([
+            'status' => ['required', Rule::in(['active', 'inactive'])],
+        ]);
+
+        $bureau = MarriageBureau::findOrFail($id);
+        $bureau->update($data);
+
+        return redirect()->back()->with([
+            'message' => 'Marriage Bureau status updated successfully.',
+            'alert-type' => 'success',
+        ]);
     }
 
     /**
@@ -72,6 +87,18 @@ class MarriageBureauController extends Controller
      */
     public function destroy(string $id)
     {
-        //
+        $bureau = MarriageBureau::findOrFail($id);
+
+        DB::transaction(function () use ($bureau) {
+            User::where('marriage_bureau_id', $bureau->id)
+                ->update(['marriage_bureau_id' => null]);
+            MarriageBureauSubscription::where('marriage_bureau_id', $bureau->id)->delete();
+            $bureau->delete();
+        });
+
+        return redirect()->route('admin.marriage-bureaus.index')->with([
+            'message' => 'Marriage Bureau deleted successfully.',
+            'alert-type' => 'success',
+        ]);
     }
 }

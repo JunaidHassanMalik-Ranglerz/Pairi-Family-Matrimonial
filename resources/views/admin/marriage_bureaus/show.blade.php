@@ -12,6 +12,23 @@
                 <a href="{{ route('admin.marriage-bureaus.index') }}" class="btn btn-icon"><i class="fas fa-arrow-left"></i></a>
             </div>
             <h1>Marriage Bureau Details</h1>
+            <div class="section-header-button ml-auto d-flex" style="gap:6px;">
+                <form action="{{ route('admin.marriage-bureaus.update', $bureau->id) }}" method="POST">
+                    @csrf
+                    @method('PUT')
+                    <input type="hidden" name="status" value="{{ $bureau->status === 'active' ? 'inactive' : 'active' }}">
+                    <button type="submit" class="btn btn-{{ $bureau->status === 'active' ? 'warning' : 'success' }}">
+                        <i class="fas fa-{{ $bureau->status === 'active' ? 'ban' : 'check' }}"></i>
+                        {{ $bureau->status === 'active' ? 'Deactivate' : 'Activate' }}
+                    </button>
+                </form>
+                <x-admin.delete-button
+                    class="deleteForm"
+                    data-url="{{ route('admin.marriage-bureaus.destroy', $bureau->id) }}"
+                    text="Delete"
+                    title="Delete"
+                />
+            </div>
         </div>
 
         <div class="section-body">

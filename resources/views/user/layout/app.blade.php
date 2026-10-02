@@ -23,7 +23,7 @@
                             </div>
                             <div class="img">
                                 <img class="img-fluid w-100"
-                                    src="{{ $user->image ? asset($user->image) : asset($setting->default_user_image) }}"
+                                    src="{{ $user->profile_photo }}"
                                     alt="profile">
                             </div>
                             <h4>{{ auth()->user()->name ?? '' }}</h4>

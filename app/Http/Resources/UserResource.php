@@ -15,11 +15,13 @@ class UserResource extends JsonResource
 
     public function toArray(Request $request): array
     {
-        $photos = collect($this->photos ?? [])->map(fn ($photo) => [
+        $photos = collect($this->photos ?? [])->map(fn ($photo, $index) => [
+            'index' => $index,
             'url' => media_url($photo['path'] ?? null),
             'path' => $photo['path'] ?? null,
             'is_main' => (bool) ($photo['is_main'] ?? false),
         ])->values()->all();
+        $mainPhotoIndex = collect($photos)->search(fn ($photo) => $photo['is_main']);
 
         $membership = $this->membershipPayload();
 
@@ -39,6 +41,7 @@ class UserResource extends JsonResource
             'longitude' => $this->longitude,
             'bio' => $this->bio,
             'profile_photo' => $this->profile_photo,
+            'main_photo_index' => $mainPhotoIndex === false ? null : $mainPhotoIndex,
             'photos' => $photos,
             'profile_completed' => (bool) $this->profile_completed,
             'profile_step' => (int) $this->profile_step,

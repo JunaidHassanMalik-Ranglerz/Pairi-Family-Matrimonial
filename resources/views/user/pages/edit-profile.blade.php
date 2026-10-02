@@ -22,7 +22,7 @@
         <div class="wsus__dashboard_profile wsus__dashboard_profile_avatar">
             <div class="img">
                 <img class="img-fluid w-100" id="profile_photo_preview"
-                    src="{{ $user->image ? asset($user->image) : asset($setting->default_user_image) }}" alt="profile">
+                    src="{{ $user->profile_photo }}" alt="profile">
                 <label for="profile_photo">
                     <img class="img-fluid w-100" src="{{ asset('website/images/dash_camera.webp') }}" alt="camera">
                 </label>

@@ -13,5 +13,5 @@
             </td>
         </tr>
     </table>
-    <p style="margin:20px 0 0;color:#666666;font-size:13px;">This code expires in 10 minutes. Please do not share it with anyone.</p>
+    <p style="margin:20px 0 0;color:#666666;font-size:13px;">This code expires in {{ $expiryMinutes ?? 5 }} minutes. Please do not share it with anyone.</p>
 @endcomponent

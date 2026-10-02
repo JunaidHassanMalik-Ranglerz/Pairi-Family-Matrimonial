@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ContentController;
 use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\MatchController;
+use App\Http\Controllers\Api\PhotoAccessController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\SettingsController;
@@ -20,7 +21,7 @@ Route::get('/', function () {
         'screens' => [
             'auth' => [
                 'POST /api/register',
-                'POST /api/register/complete',
+                'POST /api/register/otp-verify',
                 'POST /api/verify-email-otp',
                 'POST /api/resend-email-otp',
                 'POST /api/login',
@@ -39,6 +40,7 @@ Route::get('/', function () {
                 'POST /api/profile/physical',
                 'POST /api/profile/faith',
                 'POST /api/profile/photos',
+                'POST /api/profile/photos/main',
                 'POST /api/profile/update',
                 'POST /api/profile/complete',
             ],
@@ -48,8 +50,15 @@ Route::get('/', function () {
                 'POST /api/verify-phone/verify',
             ],
             'settings' => [
+                'GET  /api/settings',
+                'POST /api/settings/visibility',
                 'POST /api/change-password',
                 'POST /api/logout',
+            ],
+            'photo_access' => [
+                'GET  /api/photo-access-requests',
+                'POST /api/photo-access/{user}/request',
+                'POST /api/photo-access-requests/{photoAccessRequest}/respond',
             ],
             'notifications' => [
                 'GET /api/notifications',
@@ -120,6 +129,7 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
         Route::post('/physical', [ProfileController::class, 'updatePhysical']);
         Route::post('/faith', [ProfileController::class, 'updateFaith']);
         Route::post('/photos', [ProfileController::class, 'uploadPhotos']);
+        Route::post('/photos/main', [ProfileController::class, 'setMainPhoto']);
         Route::post('/update', [ProfileController::class, 'updateProfile']);
         Route::post('/complete', [ProfileController::class, 'completeProfile']);
         Route::post('/photo-visibility',[ProfileController::class, 'updatePhotoVisibility']);
@@ -138,6 +148,10 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::get('/shortlist', [ShortlistController::class, 'index']);
     Route::post('/shortlist/{user}/interest', [ShortlistController::class, 'sendInterest']);
     Route::post('/shortlist/{user}/pass', [ShortlistController::class, 'pass']);
+
+    Route::get('/photo-access-requests', [PhotoAccessController::class, 'index']);
+    Route::post('/photo-access/{user}/request', [PhotoAccessController::class, 'requestAccess']);
+    Route::post('/photo-access-requests/{photoAccessRequest}/respond', [PhotoAccessController::class, 'respond']);
 
     // Subscriptions and Referrals
     Route::get('/subscriptions', [\App\Http\Controllers\Api\SubscriptionController::class, 'index']);

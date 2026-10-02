@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\PhotoAccessRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,10 +10,25 @@ class ProfileDetailResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $photos = collect($this->photos ?? [])->map(fn ($photo) => [
-            'url' => media_url($photo['path'] ?? null),
-            'is_main' => (bool) ($photo['is_main'] ?? false),
-        ])->values()->all();
+        $viewer = $request->user();
+        $accessRequest = $viewer ? PhotoAccessRequest::query()
+            ->where('requester_id', $viewer->id)
+            ->where('owner_id', $this->id)
+            ->first() : null;
+        $accessGranted = $viewer
+            && ($viewer->id === $this->id || $accessRequest?->status === 'approved');
+        $profilePhotoVisible = (bool) ($this->profile_photo_visible ?? true) || $accessGranted;
+        $additionalPhotosVisible = (bool) ($this->additional_photos_visible ?? true) || $accessGranted;
+        $photos = $additionalPhotosVisible
+            ? collect($this->photos ?? [])
+                ->reject(fn ($photo) => !$profilePhotoVisible && (bool) ($photo['is_main'] ?? false))
+                ->map(fn ($photo) => [
+                    'url' => media_url($photo['path'] ?? null),
+                    'is_main' => (bool) ($photo['is_main'] ?? false),
+                ])->values()->all()
+            : [];
+        $hasHiddenPhotos = !(bool) ($this->profile_photo_visible ?? true)
+            || !(bool) ($this->additional_photos_visible ?? true);
 
         return [
             'id' => $this->id,
@@ -24,6 +40,18 @@ class ProfileDetailResource extends JsonResource
             'distance_km' => $this->distance_km ?? null,
             'profile_photo' => $this->profile_photo,
             'photos' => $photos,
+            'visibility' => [
+                'profile_photo_visible' => $profilePhotoVisible,
+                'additional_photos_visible' => $additionalPhotosVisible,
+            ],
+            'photo_access' => [
+                'request_id' => $accessRequest?->id,
+                'status' => $accessRequest?->status,
+                'granted' => $accessGranted,
+                'can_request' => $hasHiddenPhotos
+                    && (bool) ($this->mutual_match ?? false)
+                    && (!$accessRequest || $accessRequest->status === 'rejected'),
+            ],
             'is_verified' => (bool) $this->is_verified,
             'phone_verified' => (bool) $this->phone_verified,
             'bio' => $this->bio,

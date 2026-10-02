@@ -202,14 +202,40 @@ class ProfileController extends Controller
             ], 422);
         }
 
-        $photos = [];
-        $mainIndex = (int) $request->input('main_index', 0);
+        $photos = array_values($user->photos ?? []);
+        if (count($photos) + count($uploadedFiles) > 10) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A user can have a maximum of 10 profile photos.',
+            ], 422);
+        }
+
+        $mainIndex = $request->filled('main_index')
+            ? (int) $request->input('main_index')
+            : null;
+
+        if ($mainIndex !== null && $mainIndex >= count($uploadedFiles)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The selected main photo does not exist.',
+            ], 422);
+        }
+
+        $hasMainPhoto = collect($photos)->contains(fn ($photo) => (bool) ($photo['is_main'] ?? false));
+        if ($mainIndex !== null) {
+            foreach ($photos as &$existingPhoto) {
+                $existingPhoto['is_main'] = false;
+            }
+            unset($existingPhoto);
+        }
 
         foreach ($uploadedFiles as $index => $photo) {
             $path = $photo->store('profiles/' . $user->id, 'public');
             $photos[] = [
                 'path' => $path,
-                'is_main' => $index === $mainIndex,
+                'is_main' => $mainIndex !== null
+                    ? $index === $mainIndex
+                    : (!$hasMainPhoto && $index === 0),
             ];
         }
 
@@ -225,6 +251,43 @@ class ProfileController extends Controller
         return $this->errorResponse('Failed to upload photos.', $e);
     }
 }
+
+    public function setMainPhoto(Request $request): JsonResponse
+    {
+        try {
+            $data = $request->validate([
+                'photo_index' => 'required|integer|min:0',
+            ]);
+
+            $user = $request->user();
+            $photos = array_values($user->photos ?? []);
+            $selectedIndex = (int) $data['photo_index'];
+
+            if (!array_key_exists($selectedIndex, $photos)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The selected photo does not exist.',
+                ], 422);
+            }
+
+            foreach ($photos as $index => &$photo) {
+                $photo['is_main'] = $index === $selectedIndex;
+            }
+            unset($photo);
+
+            $user->update(['photos' => $photos]);
+
+            return $this->success($user, 'Profile photo updated.');
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->validator->errors()->first(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return $this->errorResponse('Failed to set profile photo.', $e);
+        }
+    }
 
     private function collectUploadedPhotos(Request $request): array
     {

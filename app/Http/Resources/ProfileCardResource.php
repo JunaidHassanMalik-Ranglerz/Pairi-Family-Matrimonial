@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\PhotoAccessRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,6 +10,12 @@ class ProfileCardResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $viewer = $request->user();
+        $accessGranted = $viewer
+            && ($viewer->id === $this->id
+                || PhotoAccessRequest::hasApprovedAccess((int) $viewer->id, (int) $this->id));
+        $profilePhotoVisible = (bool) ($this->profile_photo_visible ?? true) || $accessGranted;
+
         return [
             'id' => $this->id,
             'name' => $this->name,

@@ -31,6 +31,7 @@ class UserController extends Controller
 
         $validated['password'] = Hash::make(Str::random(40));
         $validated['marriage_bureau_id'] = Auth::guard('marriage_bureau')->id();
+        $validated['can_login'] = false;
 
         // Profiles created by a marriage bureau are display-only: they must never
         // be able to log in through the app, but should behave like a fully
@@ -44,8 +45,8 @@ class UserController extends Controller
 
         $user = User::create($validated);
 
-        if ($request->hasFile('photo')) {
-            $this->storePhoto($request, $user);
+        if ($request->hasFile('photos')) {
+            $this->storePhotos($request, $user);
         }
 
         return $this->redirectAfterSave($request, $user, 'User created successfully.');
@@ -79,8 +80,8 @@ class UserController extends Controller
 
         $user->update($validated);
 
-        if ($request->hasFile('photo')) {
-            $this->storePhoto($request, $user);
+        if ($request->hasFile('photos') || $request->filled('selected_photo')) {
+            $this->storePhotos($request, $user);
         }
 
         return $this->redirectAfterSave($request, $user, 'User updated successfully.');
@@ -165,12 +166,22 @@ class UserController extends Controller
             'mother_tongue' => 'nullable|string|max:100',
             'other_languages' => 'nullable|array',
 
-            'photo' => 'nullable|image|mimes:jpeg,png,jpg|max:5120',
+            'photos' => 'nullable|array|max:10',
+            'photos.*' => 'image|mimes:jpeg,png,jpg,webp|max:5120',
+            'selected_photo' => ['nullable', 'string', 'regex:/^(existing|new):\d+$/'],
         ];
 
         $validated = $request->validate($rules);
 
-        unset($validated['photo']);
+        $existingPhotoCount = count($user?->photos ?? []);
+        $newPhotoCount = count($request->file('photos', []));
+        if ($existingPhotoCount + $newPhotoCount > 10) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'photos' => 'A user can have a maximum of 10 profile photos.',
+            ]);
+        }
+
+        unset($validated['photos'], $validated['selected_photo']);
 
         $validated['physical_disability'] = $request->boolean('physical_disability');
 
@@ -217,15 +228,44 @@ class UserController extends Controller
         });
     }
 
-    private function storePhoto(Request $request, User $user): void
+    private function storePhotos(Request $request, User $user): void
     {
-        $path = $request->file('photo')->store('profiles/' . $user->id, 'public');
+        $existingPhotos = array_values($user->photos ?? []);
+        $newPhotos = [];
 
-        $user->update([
-            'photos' => [[
+        foreach ($request->file('photos', []) as $photo) {
+            $path = $photo->store('profiles/' . $user->id, 'public');
+            $newPhotos[] = [
                 'path' => $path,
-                'is_main' => true,
-            ]],
-        ]);
+                'is_main' => false,
+            ];
+        }
+
+        $photos = array_merge($existingPhotos, $newPhotos);
+        if (empty($photos)) {
+            return;
+        }
+
+        $selected = $request->input('selected_photo');
+        $selectedIndex = null;
+
+        if (is_string($selected) && preg_match('/^(existing|new):(\d+)$/', $selected, $matches)) {
+            $index = (int) $matches[2];
+            $selectedIndex = $matches[1] === 'new'
+                ? count($existingPhotos) + $index
+                : $index;
+        }
+
+        if ($selectedIndex === null || !array_key_exists($selectedIndex, $photos)) {
+            $currentMain = collect($photos)->search(fn ($photo) => (bool) ($photo['is_main'] ?? false));
+            $selectedIndex = $currentMain === false ? 0 : (int) $currentMain;
+        }
+
+        foreach ($photos as $index => &$photo) {
+            $photo['is_main'] = $index === $selectedIndex;
+        }
+        unset($photo);
+
+        $user->update(['photos' => $photos]);
     }
 }
