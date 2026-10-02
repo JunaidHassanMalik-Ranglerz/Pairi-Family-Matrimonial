@@ -7,9 +7,11 @@ use App\Http\Resources\UserResource;
 use App\Models\ProfileInterest;
 use App\Models\Referral;
 use App\Models\SystemSetting;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class SettingsController extends Controller
 {
@@ -83,20 +85,123 @@ class SettingsController extends Controller
     public function deactivate(Request $request): JsonResponse
     {
         try {
-            $request->user()->update(['status' => 'inactive']);
-            $request->user()->tokens()->delete();
+            $request->validate([
+                'action' => 'nullable|string|in:deactivate,activate',
+                'email' => 'nullable|email',
+                'password' => 'nullable|string',
+            ]);
+
+            $action = $request->input('action', 'deactivate');
+            $user = $this->resolveAccountUser($request, $action === 'activate');
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $action === 'activate'
+                        ? 'Invalid credentials.'
+                        : 'Unauthenticated.',
+                ], 401);
+            }
+
+            if ($action === 'activate') {
+                if ($user->status === 'active') {
+                    return response()->json([
+                        'success' => 200,
+                        'message' => 'Account is already active.',
+                        'status' => 'active',
+                    ], 200);
+                }
+
+                if ($user->reactivation_requested_at) {
+                    return response()->json([
+                        'success' => 200,
+                        'message' => 'Activate request already sent.',
+                        'status' => 'inactive',
+                        'reactivation_requested' => true,
+                    ], 200);
+                }
+
+                $user->update(['reactivation_requested_at' => now()]);
+
+                return response()->json([
+                    'success' => 200,
+                    'message' => 'Activate request sent.',
+                    'status' => 'inactive',
+                    'reactivation_requested' => true,
+                ], 200);
+            }
+
+            if ($user->status === 'inactive') {
+                $this->revokeAllTokens($user);
+
+                return response()->json([
+                    'success' => 200,
+                    'message' => 'Account is already deactivated.',
+                    'status' => 'inactive',
+                    'reactivation_requested' => (bool) $user->reactivation_requested_at,
+                ], 200);
+            }
+
+            $user->update([
+                'status' => 'inactive',
+                'profile_photo_visible' => false,
+                'additional_photos_visible' => false,
+                'reactivation_requested_at' => null,
+            ]);
+
+            $this->revokeAllTokens($user);
 
             return response()->json([
                 'success' => 200,
-                'message' => 'Account deactivated. Your profile is hidden.',
+                'message' => 'Account deactivated.',
+                'status' => 'inactive',
             ], 200);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to deactivate account',
+                'message' => 'Failed to update account status',
                 'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
+    }
+
+    private function resolveAccountUser(Request $request, bool $allowCredentials): ?User
+    {
+        $accessToken = $request->bearerToken()
+            ? PersonalAccessToken::findToken($request->bearerToken())
+            : null;
+        $tokenUser = $accessToken?->tokenable;
+
+        if ($tokenUser instanceof User) {
+            return $tokenUser->fresh();
+        }
+
+        if (!$allowCredentials) {
+            return null;
+        }
+
+        $email = $request->input('email');
+        $password = $request->input('password');
+        if (!$email || !$password) {
+            return null;
+        }
+
+        $user = User::where('email', $email)->first();
+        if (!$user || !Hash::check($password, $user->password)) {
+            return null;
+        }
+
+        return $user;
+    }
+
+    private function revokeAllTokens(User $user): void
+    {
+        PersonalAccessToken::query()
+            ->where('tokenable_id', $user->id)
+            ->where('tokenable_type', $user->getMorphClass())
+            ->delete();
     }
 
     public function deleteAccount(Request $request): JsonResponse

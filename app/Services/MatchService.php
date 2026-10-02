@@ -46,6 +46,26 @@ class MatchService
             ->withActivePlan();
     }
 
+    public function fallbackQuery(User $viewer): Builder
+    {
+        $opposite = $this->oppositeGender($viewer->gender);
+
+        return User::query()
+             ->with(['subscriptions' => function ($q) {
+                $q->with('plan')
+                    ->whereIn('status', ['verified', 'free'])
+                    ->whereNull('cancelled_at')
+                    ->where(function ($query) {
+                        $query->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                    })
+                    ->latest();
+            }])
+            ->where('id', '!=', $viewer->id)
+            ->where('status', 'active')
+            ->where('profile_completed', true)
+            ->when($opposite, fn (Builder $q) => $q->where('gender', $opposite));
+    }
+
     public function applyFilters(Builder $query, User $viewer, array $filters): Builder
     {
         if (!empty($filters['search'])) {

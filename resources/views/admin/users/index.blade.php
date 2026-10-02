@@ -41,6 +41,7 @@
                                 <option value="">Account Status</option>
                                 <option value="active" @selected(request('status') === 'active')>Active</option>
                                 <option value="inactive" @selected(request('status') === 'inactive')>Inactive</option>
+                                <option value="reactivation_requested" @selected(request('status') === 'reactivation_requested')>Reactivation Requested</option>
                             </select>
                         </div>
                         <div class="col-xl col-md-4">
@@ -122,10 +123,19 @@
                                     <span class="badge badge-{{ $user->status === 'active' ? 'success' : 'danger' }}">
                                         {{ ucfirst($user->status) }}
                                     </span>
+                                    @if($user->hasPendingReactivationRequest())
+                                        <br><span class="badge badge-warning mt-1">Reactivation requested</span>
+                                        <br><small class="text-muted">{{ $user->reactivation_requested_at?->format('d M Y, h:i A') }}</small>
+                                    @endif
                                 </td>
                                 <td>
                                     <div class="table-actions">
                                         <a href="{{ route('admin.users.show', $user->id) }}" class="btn btn-info btn-sm" title="View"><i class="fa fa-eye"></i></a>
+                                        @if($user->hasPendingReactivationRequest())
+                                            <button type="button" class="btn btn-success btn-sm toggle-status-btn" data-url="{{ route('admin.users.toggle-status', $user->id) }}" title="Approve reactivation">
+                                                Activate
+                                            </button>
+                                        @endif
                                         <x-admin.delete-button class="deleteForm" data-url="{{ route('admin.users.destroy', $user->id) }}" title="Delete" />
                                     </div>
                                 </td>
@@ -140,3 +150,26 @@
 </div>
 <x-admin.delete-modal />
 @endsection
+
+@push('js')
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script>
+$(document).on('click', '.toggle-status-btn', function() {
+    var $btn = $(this);
+    var original = $btn.html();
+    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+    $.post($btn.data('url'), { _token: '{{ csrf_token() }}' }, function(res) {
+        if (res.success) {
+            Swal.fire('Success', res.message, 'success').then(() => location.reload());
+        } else {
+            Swal.fire('Error', res.message, 'error');
+            $btn.prop('disabled', false).html(original);
+        }
+    }).fail(function() {
+        Swal.fire('Error', 'Something went wrong.', 'error');
+        $btn.prop('disabled', false).html(original);
+    });
+});
+</script>
+@endpush

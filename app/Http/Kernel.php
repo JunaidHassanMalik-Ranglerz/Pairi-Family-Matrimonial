@@ -73,5 +73,6 @@ class Kernel extends HttpKernel
         'check.vendor'     => \App\Http\Middleware\IsVendorMiddleware::class,
         'admin.status'     => \App\Http\Middleware\CheckAdminStatus::class,
         'staff.status'     => \App\Http\Middleware\CheckStaffStatus::class,
+        'account.active'   => \App\Http\Middleware\EnsureAccountActive::class,
     ];
 }

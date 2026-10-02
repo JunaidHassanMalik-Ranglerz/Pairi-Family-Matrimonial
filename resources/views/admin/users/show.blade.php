@@ -54,13 +54,21 @@
                                 @if($user->profile_completed)
                                     <span class="badge badge-primary">Profile Complete</span>
                                                 @endif
+                                @if($user->hasPendingReactivationRequest())
+                                    <span class="badge badge-warning">Reactivation requested</span>
+                                                @endif
                                             </div>
                             <small class="text-muted">Registered: {{ $user->created_at?->format('d M Y, h:i A') }}</small>
+                            @if($user->hasPendingReactivationRequest())
+                                <p class="text-warning mb-0 mt-2">
+                                    This user requested account reactivation on {{ $user->reactivation_requested_at->format('d M Y, h:i A') }}.
+                                </p>
+                            @endif
                                         </div>
                         <div class="col-md-3 text-right">
                             <button type="button" class="btn btn-{{ $user->status === 'active' ? 'warning' : 'success' }} toggle-status-btn"
                                 data-url="{{ route('admin.users.toggle-status', $user->id) }}">
-                                {{ $user->status === 'active' ? 'Deactivate Account' : 'Activate Account' }}
+                                {{ $user->status === 'active' ? 'Deactivate Account' : ($user->hasPendingReactivationRequest() ? 'Approve Reactivation' : 'Activate Account') }}
                             </button>
                                         </div>
                                     </div>

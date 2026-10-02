@@ -240,11 +240,11 @@ class ProfileController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         try {
-             $request->validate([
-            'photos' => 'required',
-            ],[
-                'photos.required' => 'Photo is required.',
-            ]);
+            //  $request->validate([
+            // 'photos' => 'required',
+            // ],[
+            //     'photos.required' => 'Photo is required.',
+            // ]);
 
             $user = $request->user();
             $data = $request->only([
@@ -291,10 +291,14 @@ class ProfileController extends Controller
 
     private function success($user, string $message): JsonResponse
     {
+        $user = $user->fresh();
+
         return response()->json([
             'success' => 200,
             'message' => $message,
-            'user' => UserResource::toPayload($user->fresh()),
+            'profile_step' => (int) ($user->profile_step ?? 0),
+            'profile_completed' => $user->profile_completed ? 1 : 0,
+            'user' => UserResource::toPayload($user),
         ], 200);
     }
 

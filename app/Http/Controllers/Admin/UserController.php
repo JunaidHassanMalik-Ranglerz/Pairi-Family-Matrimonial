@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\UserNotification;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class UserController extends Controller
 {
@@ -39,7 +42,11 @@ class UserController extends Controller
         }
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            if ($request->status === 'reactivation_requested') {
+                $query->where('status', 'inactive')->whereNotNull('reactivation_requested_at');
+            } else {
+                $query->where('status', $request->status);
+            }
         }
 
         if ($request->filled('creation_type')) {
@@ -97,16 +104,75 @@ class UserController extends Controller
 
     public function toggleStatus(Request $request, User $user)
     {
+        if ($user->status === 'active') {
+            $user->update([
+                'status' => 'inactive',
+                'profile_photo_visible' => false,
+                'additional_photos_visible' => false,
+                'reactivation_requested_at' => null,
+            ]);
+            $user->tokens()->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User account deactivated.',
+                'status' => $user->status,
+            ]);
+        }
+
+        $hadRequest = (bool) $user->reactivation_requested_at;
+
         $user->update([
-            'status' => $user->status === 'active' ? 'inactive' : 'active',
+            'status' => 'active',
+            'profile_photo_visible' => true,
+            'additional_photos_visible' => true,
+            'reactivation_requested_at' => null,
         ]);
+
+        if ($hadRequest) {
+            UserNotification::create([
+                'user_id' => $user->id,
+                'title' => 'Account reactivated',
+                'message' => 'Your reactivation request was approved.',
+            ]);
+        }
+
+        $this->sendAccountActivatedEmail($user);
 
         return response()->json([
             'success' => true,
-            'message' => 'User status updated.',
+            'message' => $hadRequest
+                ? 'Reactivation request approved. Account is active again.'
+                : 'User account activated.',
             'status' => $user->status,
         ]);
     }
+
+    private function sendAccountActivatedEmail(User $user): void
+    {
+        try {
+            $subject = 'Your Piyari Family account is active';
+
+            Mail::send('emails.account-activated', [
+                'subject' => $subject,
+                'heading' => 'Account Activated',
+                'logoUrl' => url('assets/img/piyari_logo.png'),
+                'greeting' => 'Dear ' . ($user->name ?: 'User') . ',',
+                'messageLine' => 'Your account has been activated.',
+            ], function ($mail) use ($user, $subject) {
+                $mail->to($user->email)
+                    ->subject($subject)
+                    ->from(config('mail.from.address'), 'Piyari Family');
+            });
+        } catch (\Throwable $e) {
+            Log::error('Failed to send account activation email.', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
     public function verifySubscription(Request $request, User $user)
     {
         $request->validate([

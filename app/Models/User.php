@@ -50,7 +50,13 @@ class User extends Authenticatable
         'profile_photo_visible' => 'boolean',
         'additional_photos_visible' => 'boolean',
         'profile_boost_until' => 'datetime',
+        'reactivation_requested_at' => 'datetime',
     ];
+
+    public function hasPendingReactivationRequest(): bool
+    {
+        return $this->status !== 'active' && $this->reactivation_requested_at !== null;
+    }
 
     public function getAgeAttribute(): ?int
     {

@@ -167,6 +167,33 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
     border-left-color: #7B1E3A;
     font-weight: 600;
 }
+
+.sidebar-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    margin-left: auto;
+    padding: 0;
+    border-radius: 50%;
+    aspect-ratio: 1 / 1;
+    align-self: center;
+    box-sizing: border-box;
+    background: #7B1E3A;
+    color: #ffffff !important;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.sidebar-submenu li a.active .sidebar-count-badge {
+    background: #7B1E3A;
+    color: #ffffff !important;
+}
 </style>
 
 <div class="main-sidebar">
@@ -206,7 +233,19 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
                     <i class="fas fa-minus menu-caret minus-icon"></i>
                 </a>
                 <ul id="usersMenu" class="sidebar-submenu collapse {{ $usersOpen ? 'show' : '' }}" data-bs-parent="#adminSidebarMenu">
-                    <li><a href="{{ route('admin.users.index') }}" class="{{ request()->routeIs('admin.users.*') ? 'active' : '' }}">{{ __('All Users') }}</a></li>
+                    <li>
+                        @php
+                            $reactivationCount = \App\Models\User::query()
+                                ->where('status', 'inactive')
+                                ->whereNotNull('reactivation_requested_at')
+                                ->count();
+                            $reactivationLabel = $reactivationCount > 10 ? '10+' : (string) $reactivationCount;
+                        @endphp
+                        <a href="{{ route('admin.users.index') }}" class="{{ request()->routeIs('admin.users.*') ? 'active' : '' }}">
+                            {{ __('All Users') }}
+                            <span class="sidebar-count-badge">{{ $reactivationLabel }}</span>
+                        </a>
+                    </li>
                 </ul>
             </li>
 

@@ -6,12 +6,22 @@ return [
     'discountable_plan_types' => ['Basic', 'VIP', 'VVIP'],
 
     /*
-    | Required onboarding fields are excluded. Discount applies only when
-    | every optional field below has a non-empty value.
+    | Required onboarding fields. profile_completed is true only when
+    | every required field and every optional field below is filled.
     */
+    'required_fields' => [
+        'name',
+        'email',
+        'phone',
+        'country',
+        'gender',
+        'birthday',
+        'photos',
+    ],
+
     'optional_fields' => [
-        'bio',
-        'city',
+        // 'bio',
+        // 'city',
         'qualification',
         'field_of_study',
         'university',
@@ -30,7 +40,7 @@ return [
         'sect',
         'mother_tongue',
         'other_languages',
-        'interests',
+        // 'interests',
         'marital_status',
     ],
 ];

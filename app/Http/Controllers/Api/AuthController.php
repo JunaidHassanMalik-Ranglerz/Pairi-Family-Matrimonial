@@ -580,8 +580,12 @@ public function forgotResendEmailOtp(Request $request): JsonResponse
 
             $user = User::where('email', $request->email)->first();
 
-            if (!$user || !Hash::check($request->password, $user->password)) {
-                return response()->json(['success' => false, 'message' => 'Invalid credentials.'], 401);
+            if(!$user) {
+                return response()->json(['success' => false, 'message' => 'Email incorrect.'], 401);
+            }
+
+            if (!Hash::check($request->password, $user->password)) {
+                return response()->json(['success' => false, 'message' => 'Password incorrect.'], 401);
             }
 
             if ($user->marriage_bureau_id) {
@@ -592,7 +596,14 @@ public function forgotResendEmailOtp(Request $request): JsonResponse
             }
 
             if ($user->status !== 'active') {
-                return response()->json(['success' => false, 'message' => 'Your account is inactive.'], 403);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account is inactive.',
+                    'account_inactive' => true,
+                    'reactivation_requested' => (bool) $user->reactivation_requested_at,
+                    'status' => $user->status,
+                    'token' => $user->createToken('auth')->plainTextToken,
+                ], 403);
             }
 
             if (!$user->is_verified) {
@@ -604,9 +615,23 @@ public function forgotResendEmailOtp(Request $request): JsonResponse
                 ], 403);
             }
 
+            if (!$user->profile_completed) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please complete your profile to log in.',
+                    'requires_profile_completion' => true,
+                    'profile_completed' => 0,
+                    'profile_step' => (int) ($user->profile_step ?? 0),
+                    'user' => UserResource::toPayload($user),
+                    'token' => $user->createToken('auth')->plainTextToken,
+                ], 200);
+            }
+
             return response()->json([
                 'success' => 200,
                 'message' => 'Logged in successfully.',
+                'profile_completed' => 1,
+                'profile_step' => (int) ($user->profile_step ?? 0),
                 'user' => UserResource::toPayload($user),
                 'token' => $user->createToken('auth')->plainTextToken,
             ], 200);
@@ -1040,11 +1065,13 @@ public function profile(Request $request): JsonResponse
         $membershipBadge = null;
         $planType = 'Free';
         $discountEligible = false;
+        $completionService = app(\App\Services\ProfileCompletionService::class);
+        $profileCompleted = $completionService->isFullyCompleted($user) ? 1 : 0;
         try {
             $accessService = app(\App\Services\SubscriptionAccessService::class);
             $membershipBadge = $accessService->membershipBadge($user);
             $planType = $accessService->activePlan($user)?->type ?? 'Free';
-            $discountEligible = app(\App\Services\ProfileCompletionService::class)->isEligibleForDiscount($user);
+            $discountEligible = $completionService->isEligibleForDiscount($user);
         } catch (\Throwable $e) {
             // Keep profile payload intact if membership lookup fails.
         }
@@ -1059,20 +1086,21 @@ public function profile(Request $request): JsonResponse
                 'education'  => $user->qualification,
                 'career'     => $user->job_title,
                 'religion'   => $user->religion,
-                'bio'        => $user->bio,
+                // 'bio'        => $user->bio,
                 'age'        => $user->birthday
                     ? Carbon::parse($user->birthday)->age
                     : null,
                 'height'     => $user->height,
                 'sect'       => $user->sect,
                 'language'   => $user->mother_tongue,
-                'interests'  => $user->interests,  // ✅ Fixed key name
-                'city'       => $user->city,
+                // 'interests'  => $user->interests,  // ✅ Fixed key name
+                // 'city'       => $user->city,
                 'country'    => $user->country,
                 'community'  => $user->community,   // ✅ Added
                 'gender'     => $user->gender,       // ✅ Added
                 'marital_status' => $user->marital_status, // ✅ Added
                 'profile_step' => $user->profile_step,     // ✅ Added
+                'profile_completed' => $profileCompleted,
                 'membership_badge' => $membershipBadge,
                 'plan_type' => $planType,
                 'discount_eligible' => $discountEligible,

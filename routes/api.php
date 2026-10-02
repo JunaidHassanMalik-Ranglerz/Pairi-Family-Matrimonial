@@ -99,9 +99,10 @@ Route::post('/verify-reset-otp', [AuthController::class, 'verifyResetOtp']);
 Route::post('/forgot-resend-otp', [AuthController::class, 'forgotResendEmailOtp']);
 Route::post('/set-new-password', [AuthController::class, 'setNewPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+Route::post('/account/deactivate', [SettingsController::class, 'deactivate']);
 
 // Protected
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::get('/profile', [AuthController::class, 'profile']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
@@ -154,7 +155,6 @@ Route::middleware('auth:sanctum')->group(function () {
     // Settings & Account
     Route::get('/settings', [SettingsController::class, 'index']);
     Route::post('/settings/visibility', [SettingsController::class, 'updateVisibility']);
-    Route::post('/account/deactivate', [SettingsController::class, 'deactivate']);
     Route::post('/account/delete', [SettingsController::class, 'deleteAccount']);
 
     // Notifications (DB-backed)

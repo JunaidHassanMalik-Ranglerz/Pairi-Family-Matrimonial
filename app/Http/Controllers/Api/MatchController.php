@@ -65,11 +65,11 @@ class MatchController extends Controller
             $viewer = $request->user();
             $filters = $this->parseFilters($request);
 
-            $query = $this->matchService->baseQuery($viewer);
+            $query = $this->matchService->fallbackQuery($viewer);
             $query = $this->matchService->applyFilters($query, $viewer, $filters);
 
             $perPage = min((int) $request->get('per_page', 20), 50);
-            $candidates = $query->limit(500)->get();
+            $candidates = $query->latest('created_at')->limit(500)->get();
             $ranked = $this->matchService->rankProfiles($viewer, $candidates);
 
             $page = max((int) $request->get('page', 1), 1);

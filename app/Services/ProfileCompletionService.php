@@ -12,6 +12,43 @@ class ProfileCompletionService
         return config('profile_completion.optional_fields', []);
     }
 
+    public function requiredFields(): array
+    {
+        return config('profile_completion.required_fields', [
+            'name',
+            'email',
+            'phone',
+            'country',
+            'gender',
+            'birthday',
+            'photos',
+        ]);
+    }
+
+    public function missingRequiredFields(User $user): array
+    {
+        $missing = [];
+
+        foreach ($this->requiredFields() as $field) {
+            if (!$this->isFilled($user->{$field} ?? null)) {
+                $missing[] = $field;
+            }
+        }
+
+        return $missing;
+    }
+
+    public function hasAllRequiredFieldsCompleted(User $user): bool
+    {
+        return empty($this->missingRequiredFields($user));
+    }
+
+    public function isFullyCompleted(User $user): bool
+    {
+        return $this->hasAllRequiredFieldsCompleted($user)
+            && $this->hasAllOptionalFieldsCompleted($user);
+    }
+
     public function missingOptionalFields(User $user): array
     {
         $missing = [];
