@@ -104,10 +104,13 @@ class ShortlistController extends Controller
                 ->first();
 
             if ($existing && $existing->action === 'interest') {
+                $existing->delete();
+
                 return response()->json([
                     'success' => 200,
-                    'message' => 'Already shortlisted.',
-                    'shortlisted' => true,
+                    'message' => 'Interest removed.',
+                    'shortlisted' => false,
+                    'mutual_match' => false,
                     'from_user_id' => $sender->id,
                     'to_user_id' => $user->id,
                 ], 200);

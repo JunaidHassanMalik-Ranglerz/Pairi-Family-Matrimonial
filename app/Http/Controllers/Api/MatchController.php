@@ -171,8 +171,12 @@ class MatchController extends Controller
 
             return response()->json([
                 'success' => 200,
+                'message' => $this->bestMatchStatusMessage($profile, $fallbackUsed),
                 'match_score' => (int) $profile->match_score,
                 'fallback_used' => $fallbackUsed,
+                'is_liked' => (bool) $profile->interest_sent,
+                'shortlisted' => (bool) $profile->interest_sent,
+                'mutual_match' => (bool) $profile->mutual_match,
                 'profile' => ProfileDetailResource::make($profile),
             ], 200);
         } catch (\Exception $e) {
@@ -285,5 +289,22 @@ class MatchController extends Controller
         };
 
         return "{$timeGreeting}, {$name}. Here are your best matches today.";
+    }
+
+    private function bestMatchStatusMessage(User $profile, bool $fallbackUsed): string
+    {
+        if ($profile->mutual_match ?? false) {
+            return 'It\'s a mutual match! You both liked each other.';
+        }
+
+        if ($profile->interest_sent ?? false) {
+            return 'You have liked this profile.';
+        }
+
+        if ($fallbackUsed) {
+            return 'Best match found. You have not liked this profile yet.';
+        }
+
+        return 'Best match profile loaded. You have not liked this profile yet.';
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\PhotoAccessRequest;
+use App\Models\ProfileInterest;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -15,6 +16,8 @@ class ProfileCardResource extends JsonResource
             && ($viewer->id === $this->id
                 || PhotoAccessRequest::hasApprovedAccess((int) $viewer->id, (int) $this->id));
         $profilePhotoVisible = (bool) ($this->profile_photo_visible ?? true) || $accessGranted;
+
+        $isLiked = $this->viewerHasLiked($viewer);
 
         return [
             'id' => $this->id,
@@ -45,10 +48,34 @@ class ProfileCardResource extends JsonResource
             'is_verified' => (bool) $this->is_verified,
             'phone_verified' => (bool) $this->phone_verified,
             'is_new' => $this->created_at?->gte(now()->subDays(config('pairi_family.new_profile_days', 3))) ?? false,
+            'interest_sent' => $isLiked,
+            'is_liked' => $isLiked,
+            'shortlisted' => $isLiked,
+            'like_status' => $isLiked ? 'liked' : 'unliked',
+            'like_message' => $isLiked
+                ? 'You have liked this profile.'
+                : 'You have not liked this profile yet.',
             'match_score' => (int) ($this->match_score ?? 0),
             'interests' => $this->interests ?? [],
             'membership_badge' => $this->membershipBadge(),
         ];
+    }
+
+    private function viewerHasLiked($viewer): bool
+    {
+        if (!$viewer || (int) $viewer->id === (int) $this->id) {
+            return false;
+        }
+
+        if (isset($this->interest_sent)) {
+            return (bool) $this->interest_sent;
+        }
+
+        return ProfileInterest::query()
+            ->where('from_user_id', $viewer->id)
+            ->where('to_user_id', $this->id)
+            ->where('action', 'interest')
+            ->exists();
     }
 
     private function membershipBadge(): ?string
