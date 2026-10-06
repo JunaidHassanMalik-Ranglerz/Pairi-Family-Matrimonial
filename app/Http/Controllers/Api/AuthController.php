@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Support\PhoneVerification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -923,24 +924,59 @@ public function verifyResetOtp(Request $request): JsonResponse
     }
 }
 
+    public function phoneVerificationStatus(Request $request): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => 200,
+                'data' => PhoneVerification::statusPayload($request->user()),
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load phone verification status.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
     public function sendPhoneOtp(Request $request): JsonResponse
     {
         try {
-
             $user = Auth::user();
-			 if ($user->phone_verified === 1) {
-            return response()->json([
-                'success' => false, 
-                'message' => 'Phone is already verified.'
-            ], 400);
-        }
-            $requestedPhone = $request->input('phone', $user->phone);
+
+            if ($user->phone_verified) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Phone is already verified.',
+                    'phone_verification' => PhoneVerification::statusPayload($user),
+                ], 400);
+            }
+
+            $validated = $request->validate([
+                'phone' => ['nullable', 'string', 'min:7', 'max:20'],
+            ]);
+
+            $requestedPhone = trim((string) ($validated['phone'] ?? $user->phone ?? ''));
+            if ($requestedPhone === '') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Phone number is required.',
+                ], 422);
+            }
+
             if (
                 $user->phone_otp
                 && $user->phone_otp_expires_at?->isFuture()
                 && $requestedPhone === $user->phone
             ) {
-                return $this->activeOtpResponse($user->phone_otp_expires_at, 'phone');
+                return $this->phoneOtpSentResponse(
+                    $user,
+                    (string) $user->phone_otp,
+                    $user->phone_otp_expires_at,
+                    'Verification code already sent. Enter the code or wait to resend.',
+                    true
+                );
             }
 
             $otp = $this->generateOtp(6);
@@ -954,25 +990,20 @@ public function verifyResetOtp(Request $request): JsonResponse
                 'phone_verified' => false,
             ]);
 
-            $response = [
-                'success' => 200,
-                'message' => 'Verification code sent to your phone.',
-                'resend_after_seconds' => now()->diffInSeconds($expiresAt),
-                'expires_in_seconds' => now()->diffInSeconds($expiresAt),
-            ];
-
-            if (config('app.debug')) {
-                $response['debug_otp'] = $otp;
-            }
-
-            return response()->json($response, 200);
+            return $this->phoneOtpSentResponse(
+                $user->fresh(),
+                $otp,
+                $expiresAt,
+                'Verification code sent to your phone.',
+                false
+            );
         } catch (ValidationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Send phone OTP failed.',
-                'error' => config('app.debug') ? $e->getMessage() : null
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
@@ -985,8 +1016,21 @@ public function verifyResetOtp(Request $request): JsonResponse
                 return response()->json(['success' => false, 'message' => 'Phone is already verified.'], 400);
             }
 
+            if (!$user->phone) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Add your phone number before requesting a verification code.',
+                ], 422);
+            }
+
             if ($user->phone_otp && $user->phone_otp_expires_at?->isFuture()) {
-                return $this->activeOtpResponse($user->phone_otp_expires_at, 'phone');
+                return $this->phoneOtpSentResponse(
+                    $user,
+                    (string) $user->phone_otp,
+                    $user->phone_otp_expires_at,
+                    'Verification code already sent. Enter the code or wait to resend.',
+                    true
+                );
             }
 
             $otp = $this->generateOtp(6);
@@ -998,85 +1042,82 @@ public function verifyResetOtp(Request $request): JsonResponse
                 'phone_otp_resend_available_at' => $expiresAt,
             ]);
 
-            $response = [
-                'success' => 200,
-                'message' => 'Verification code resent.',
-                'resend_after_seconds' => now()->diffInSeconds($expiresAt),
-                'expires_in_seconds' => now()->diffInSeconds($expiresAt),
-            ];
-
-            if (config('app.debug')) {
-                $response['debug_otp'] = $otp;
-            }
-
-            return response()->json($response, 200);
+            return $this->phoneOtpSentResponse(
+                $user->fresh(),
+                $otp,
+                $expiresAt,
+                'Verification code resent.',
+                false
+            );
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Resend phone OTP failed.',
-                'error' => config('app.debug') ? $e->getMessage() : null
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
 
-   public function verifyPhoneOtp(Request $request): JsonResponse
-{
-    try {
-        $user = Auth::user();
+    public function verifyPhoneOtp(Request $request): JsonResponse
+    {
+        try {
+            $user = Auth::user();
 
-        // Remove this line - it's causing the error
-        // return $user->phone_verified;
+            if ($user->phone_verified) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Phone is already verified.',
+                    'phone_verification' => PhoneVerification::statusPayload($user),
+                ], 400);
+            }
 
-        if ($user->phone_verified === 1) {
+            $request->validate([
+                'otp' => 'required|string|size:6',
+            ]);
+
+            if (
+                !$user->phone_otp_expires_at
+                || $user->phone_otp_expires_at->isPast()
+                || !hash_equals((string) $user->phone_otp, (string) $request->otp)
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid or expired code.',
+                ], 400);
+            }
+
+            $user->update([
+                'phone_verified' => true,
+                'phone_otp' => null,
+                'phone_otp_expires_at' => null,
+                'phone_otp_resend_available_at' => null,
+            ]);
+
+            $user = $user->fresh();
+
             return response()->json([
-                'success' => false, 
-                'message' => 'Phone is already verified.'
-            ], 400);
-        }
-
-        // Validate OTP
-        $request->validate([
-            'otp' => 'required|string|size:6'
-        ]);
-
-        if (
-            !$user->phone_otp_expires_at
-            || $user->phone_otp_expires_at->isPast()
-            || !hash_equals((string) $user->phone_otp, (string) $request->otp)
-        ) {
+                'success' => 200,
+                'message' => 'Number verified.',
+                'phone_verified' => true,
+                'verified_badge' => PhoneVerification::badgeLabel($user),
+                'show_verified_badge' => true,
+                'phone_verification' => PhoneVerification::statusPayload($user),
+                'user' => UserResource::toPayload($user),
+            ], 200);
+        } catch (ValidationException $e) {
             return response()->json([
-                'success' => false, 
-                'message' => 'Invalid or expired code.'
-            ], 400);
+                'success' => false,
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verify phone OTP failed.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
-
-        $user->update([
-            'phone_verified' => true,
-            'phone_otp' => null,
-            'phone_otp_expires_at' => null,
-            'phone_otp_resend_available_at' => null,
-        ]);
-
-        return response()->json([
-            'success' => 200,
-            'message' => 'Number verified! Your profile has been verified successfully.',
-            'user' => UserResource::toPayload($user->fresh()),
-        ], 200);
-        
-    } catch (ValidationException $e) {
-        return response()->json([
-            'success' => false, 
-            'message' => $e->getMessage(), 
-            'errors' => $e->errors()
-        ], 422);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Verify phone OTP failed.',
-            'error' => config('app.debug') ? $e->getMessage() : null
-        ], 500);
     }
-}
 
 
 
@@ -1124,6 +1165,9 @@ public function profile(Request $request): JsonResponse
             // Keep profile payload intact if membership lookup fails.
         }
 
+        $seriousMemberBadge = $completionService->seriousMemberBadge($user);
+        $verifiedBadge = PhoneVerification::badgeLabel($user);
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -1152,7 +1196,20 @@ public function profile(Request $request): JsonResponse
                 'marital_status' => $user->marital_status, // ✅ Added
                 'profile_step' => $user->profile_step,     // ✅ Added
                 'profile_completed' => $profileCompleted,
+                'profile_fully_completed' => (bool) $profileCompleted,
+                'phone' => $user->phone,
+                'phone_verified' => (bool) $user->phone_verified,
+                'verified_badge' => $verifiedBadge,
+                'show_verified_badge' => PhoneVerification::showBadge($user),
+                'phone_verification' => PhoneVerification::statusPayload($user),
                 'membership_badge' => $membershipBadge,
+                'serious_member_badge' => $completionService->seriousMemberBadge($user),
+                'is_serious_member' => $completionService->isSeriousMember($user),
+                'badges' => array_values(array_filter([
+                    $verifiedBadge,
+                    $membershipBadge,
+                    $seriousMemberBadge,
+                ])),
                 'plan_type' => $planType,
                 'discount_eligible' => $discountEligible,
             ]
@@ -1207,6 +1264,35 @@ public function profile(Request $request): JsonResponse
             'expires_in_minutes' => (int) ceil($remainingSeconds / 60),
             'can_request_new_otp_at' => $expiresAt->toIso8601String(),
         ], 429);
+    }
+
+    private function phoneOtpSentResponse(
+        User $user,
+        string $otp,
+        Carbon $expiresAt,
+        string $message,
+        bool $otpAlreadyActive
+    ): JsonResponse {
+        $expiresIn = max(0, now()->diffInSeconds($expiresAt));
+
+        $response = [
+            'success' => 200,
+            'message' => $message,
+            'otp_active' => $otpAlreadyActive,
+            'phone' => $user->phone,
+            'phone_verified' => (bool) $user->phone_verified,
+            'verified_badge' => PhoneVerification::badgeLabel($user),
+            'show_verified_badge' => PhoneVerification::showBadge($user),
+            'verification_code_length' => 6,
+            'resend_after_seconds' => $expiresIn,
+            'expires_in_seconds' => $expiresIn,
+        ];
+
+        if (PhoneVerification::shouldExposeOtpInResponse()) {
+            $response['verification_code'] = $otp;
+        }
+
+        return response()->json($response, 200);
     }
 
     private function generateOtp(int $length): string

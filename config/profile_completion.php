@@ -1,6 +1,8 @@
 <?php
 
 return [
+    'serious_member_badge' => 'Serious Member',
+
     'discount_percent' => 50,
     'discount_reason' => 'profile_completion',
     'discountable_plan_types' => ['Basic', 'VIP', 'VVIP'],

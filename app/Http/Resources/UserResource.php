@@ -2,12 +2,16 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\Concerns\WithProfileBadges;
 use App\Models\User;
+use App\Support\PhoneVerification;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class UserResource extends JsonResource
 {
+    use WithProfileBadges;
+
     public static function toPayload(User $user): array
     {
         return (new self($user))->toArray(request());
@@ -32,6 +36,8 @@ class UserResource extends JsonResource
             'phone' => $this->phone,
             'is_verified' => (bool) $this->is_verified,
             'phone_verified' => (bool) $this->phone_verified,
+            'verified_badge' => PhoneVerification::badgeLabel($this->resource),
+            'show_verified_badge' => PhoneVerification::showBadge($this->resource),
             'gender' => $this->gender,
             'birthday' => $this->birthday?->format('Y-m-d'),
             'age' => $this->age,
@@ -75,10 +81,11 @@ class UserResource extends JsonResource
             'profile_photo_visible' => (bool) ($this->profile_photo_visible ?? true),
             'additional_photos_visible' => (bool) ($this->additional_photos_visible ?? true),
             'profile_boost_until' => $this->profile_boost_until?->toIso8601String(),
-            'membership_badge' => $membership['membership_badge'],
             'plan_type' => $membership['plan_type'],
             'discount_eligible' => $membership['discount_eligible'],
             'optional_profile_completed' => $membership['optional_profile_completed'],
+            'profile_fully_completed' => $membership['profile_fully_completed'],
+            ...$this->profileBadgePayload(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
@@ -91,17 +98,17 @@ class UserResource extends JsonResource
             $completion = app(\App\Services\ProfileCompletionService::class);
 
             return [
-                'membership_badge' => $access->membershipBadge($user),
                 'plan_type' => $access->activePlan($user)?->type ?? 'Free',
                 'discount_eligible' => $completion->isEligibleForDiscount($user),
                 'optional_profile_completed' => $completion->hasAllOptionalFieldsCompleted($user),
+                'profile_fully_completed' => $completion->isFullyCompleted($user),
             ];
         } catch (\Throwable $e) {
             return [
-                'membership_badge' => null,
                 'plan_type' => 'Free',
                 'discount_eligible' => false,
                 'optional_profile_completed' => false,
+                'profile_fully_completed' => false,
             ];
         }
     }

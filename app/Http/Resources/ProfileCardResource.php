@@ -2,13 +2,17 @@
 
 namespace App\Http\Resources;
 
+use App\Http\Resources\Concerns\WithProfileBadges;
 use App\Models\PhotoAccessRequest;
+use App\Support\PhoneVerification;
 use App\Models\ProfileInterest;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class ProfileCardResource extends JsonResource
 {
+    use WithProfileBadges;
+
     public function toArray(Request $request): array
     {
         $viewer = $request->user();
@@ -47,6 +51,8 @@ class ProfileCardResource extends JsonResource
             ->toArray(),
             'is_verified' => (bool) $this->is_verified,
             'phone_verified' => (bool) $this->phone_verified,
+            'verified_badge' => PhoneVerification::badgeLabel($this->resource),
+            'show_verified_badge' => PhoneVerification::showBadge($this->resource),
             'is_new' => $this->created_at?->gte(now()->subDays(config('pairi_family.new_profile_days', 3))) ?? false,
             'interest_sent' => $isLiked,
             'is_liked' => $isLiked,
@@ -57,7 +63,7 @@ class ProfileCardResource extends JsonResource
                 : 'You have not liked this profile yet.',
             'match_score' => (int) ($this->match_score ?? 0),
             'interests' => $this->interests ?? [],
-            'membership_badge' => $this->membershipBadge(),
+            ...$this->profileBadgePayload(),
         ];
     }
 
@@ -78,16 +84,4 @@ class ProfileCardResource extends JsonResource
             ->exists();
     }
 
-    private function membershipBadge(): ?string
-    {
-        try {
-            if (!$this->resource instanceof \App\Models\User) {
-                return null;
-            }
-
-            return app(\App\Services\SubscriptionAccessService::class)->membershipBadge($this->resource);
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
 }

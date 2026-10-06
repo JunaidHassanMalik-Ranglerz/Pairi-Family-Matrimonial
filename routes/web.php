@@ -1,11 +1,27 @@
 <?php
 
+use App\Models\ContentPage;
+use App\Models\PrivacyPolicy;
+use App\Models\TermCondition;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return redirect()->route('admin.login');
 });
+
+Route::get('/privacy_Policy', function () {
+    $data = PrivacyPolicy::first();
+    return view('privacypolicy.privacy', compact('data'));
+});
+Route::get('/terms_conditions', function () {
+    $data = TermCondition::first();
+    return view('termsconditions.termsConditions', compact('data'));
+});
+
+
+Route::redirect('/privacy-policy', '/privacy_Policy');
+Route::redirect('/terms-conditions', '/terms_conditions');
 
 Route::get('/{referralCode}', function (string $referralCode) {
     if (!preg_match('/^[A-Z0-9]{8}$/', $referralCode)) {

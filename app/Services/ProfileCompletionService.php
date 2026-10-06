@@ -49,6 +49,18 @@ class ProfileCompletionService
             && $this->hasAllOptionalFieldsCompleted($user);
     }
 
+    public function isSeriousMember(User $user): bool
+    {
+        return $this->isFullyCompleted($user);
+    }
+
+    public function seriousMemberBadge(User $user): ?string
+    {
+        return $this->isSeriousMember($user)
+            ? (string) config('profile_completion.serious_member_badge', 'Serious Member')
+            : null;
+    }
+
     public function missingOptionalFields(User $user): array
     {
         $missing = [];

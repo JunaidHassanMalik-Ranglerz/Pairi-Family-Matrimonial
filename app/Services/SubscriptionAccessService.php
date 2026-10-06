@@ -54,6 +54,12 @@ class SubscriptionAccessService
             'vip_badge' => (bool) ($features['vip_badge'] ?? false),
             'vvip_badge' => (bool) ($features['vvip_badge'] ?? false),
             'membership_badge' => $this->membershipBadge($user),
+            'serious_member_badge' => app(ProfileCompletionService::class)->seriousMemberBadge($user),
+            'is_serious_member' => app(ProfileCompletionService::class)->isSeriousMember($user),
+            'badges' => array_values(array_filter([
+                $this->membershipBadge($user),
+                app(ProfileCompletionService::class)->seriousMemberBadge($user),
+            ])),
             'see_who_liked' => (bool) ($features['see_who_liked'] ?? false),
             'display_features' => $features['display'] ?? [],
         ];

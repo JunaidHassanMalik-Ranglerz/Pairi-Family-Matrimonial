@@ -62,6 +62,11 @@ return [
 
     'otp_expiry_minutes' => 5,
     'otp_resend_seconds' => 300,
+
+    // Return verification_code in send/resend API (set true for staging; use SMS in production).
+    'expose_phone_otp_in_response' => env('PAIRI_EXPOSE_PHONE_OTP', null),
+
+    'phone_verified_badge' => 'Verified',
     'min_profile_photos' => 3,
     'new_profile_days' => 3,
 ];

@@ -45,6 +45,7 @@ Route::get('/', function () {
                 'POST /api/profile/complete',
             ],
             'verification' => [
+                'GET /api/verify-phone/status',
                 'POST /api/verify-phone/send',
                 'POST /api/verify-phone/resend',
                 'POST /api/verify-phone/verify',
@@ -78,6 +79,9 @@ Route::get('/', function () {
         ],
     ]);
 });
+
+Route::get('/privacy_Policy', fn () => redirect(url('/privacy_Policy')));
+Route::get('/terms_conditions', fn () => redirect(url('/terms_conditions')));
 
 // Lookup (public)
 Route::get('/countries', [LookupController::class, 'countries']);
@@ -116,6 +120,7 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/change-password', [AuthController::class, 'changePassword']);
 
+    Route::get('/verify-phone/status', [AuthController::class, 'phoneVerificationStatus']);
     Route::post('/verify-phone/send', [AuthController::class, 'sendPhoneOtp']);
     Route::post('/verify-phone/resend', [AuthController::class, 'resendPhoneOtp']);
     Route::post('/verify-phone/verify', [AuthController::class, 'verifyPhoneOtp']);
@@ -152,6 +157,7 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::get('/photo-access-requests', [PhotoAccessController::class, 'index']);
     Route::post('/photo-access/{user}/request', [PhotoAccessController::class, 'requestAccess']);
     Route::post('/photo-access-requests/{photoAccessRequest}/respond', [PhotoAccessController::class, 'respond']);
+    Route::delete('/photo-access-requests/{photoAccessRequest}', [PhotoAccessController::class, 'destroy']);
 
     // Subscriptions and Referrals
     Route::get('/subscriptions', [\App\Http\Controllers\Api\SubscriptionController::class, 'index']);

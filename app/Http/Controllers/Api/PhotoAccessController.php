@@ -156,6 +156,45 @@ class PhotoAccessController extends Controller
         ]);
     }
 
+    public function destroy(Request $request, PhotoAccessRequest $photoAccessRequest): JsonResponse
+    {
+        $user = $request->user();
+
+        if ($photoAccessRequest->owner_id !== $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only the profile owner can revoke approved photo access.',
+            ], 403);
+        }
+
+        if ($photoAccessRequest->status !== 'approved') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only approved photo access requests can be revoked.',
+            ], 422);
+        }
+
+        $requestId = $photoAccessRequest->id;
+        $requesterId = $photoAccessRequest->requester_id;
+
+        $photoAccessRequest->delete();
+
+        PhotoAccessRequest::clearApprovedAccessCache($requesterId);
+
+        UserNotification::create([
+            'user_id' => $requesterId,
+            'title' => 'Photo Access Revoked',
+            'message' => "{$user->name} revoked your access to their hidden photos.",
+        ]);
+
+        return response()->json([
+            'success' => 200,
+            'message' => 'Approved photo access has been revoked.',
+            'request_id' => $requestId,
+            'status' => 'revoked',
+        ]);
+    }
+
     private function isMutualMatch(int $firstUserId, int $secondUserId): bool
     {
         $directions = ProfileInterest::query()

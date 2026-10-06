@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Support\PhoneVerification;
 use App\Models\ProfileInterest;
 use App\Models\Referral;
 use App\Models\SystemSetting;
@@ -42,6 +43,7 @@ class SettingsController extends Controller
                     'profile_photo_visible' => (bool) $user->profile_photo_visible,
                     'additional_photos_visible' => (bool) $user->additional_photos_visible,
                 ],
+                'phone_verification' => PhoneVerification::statusPayload($user),
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

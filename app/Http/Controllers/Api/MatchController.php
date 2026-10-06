@@ -88,6 +88,7 @@ class MatchController extends Controller
             $query = $this->matchService->applyFilters($query, $viewer, $filters);
 
             $perPage = min((int) $request->get('per_page', 20), 50);
+            $fallbackUsed = false;
             $candidates = $query->latest('created_at')->limit(500)->get();
             $ranked = $this->matchService->rankProfiles($viewer, $candidates);
 
@@ -103,11 +104,7 @@ class MatchController extends Controller
                     ? 'No exact match was found, so other opposite-gender profiles are shown.'
                     : 'Matching profiles loaded.',
                 'filters_applied' => array_filter($filters, fn ($value) => $value !== null && $value !== '' && $value !== false),
-                'quick_filters' => [
-                    'near_me' => 'Same city or within 50km',
-                    'new_profiles' => 'Joined in last 3 days',
-                    'verified' => 'Phone verified profiles',
-                ],
+                'quick_filters' => $this->buildSearchQuickFilters($viewer, $filters),
                 'data' => ProfileCardResource::collection($items),
                 'pagination' => [
                     'current_page' => $page,
@@ -257,6 +254,56 @@ class MatchController extends Controller
         $this->matchService->attachDistances($viewer, collect([$user]));
 
         return $user;
+    }
+
+    private function buildSearchQuickFilters(User $viewer, array $filters): array
+    {
+        $quickFilters = [
+            'new_profiles' => 'Joined in last 3 days',
+            'verified' => 'Phone verified profiles',
+        ];
+
+        if ($this->canOfferNearMeQuickFilter($viewer, $filters)) {
+            $quickFilters = ['near_me' => 'Same city or within 50km'] + $quickFilters;
+        }
+
+        return $quickFilters;
+    }
+
+    private function canOfferNearMeQuickFilter(User $viewer, array $filters): bool
+    {
+        $viewerCity = trim((string) ($viewer->city ?? ''));
+        if ($viewerCity === '') {
+            return ($viewer->latitude && $viewer->longitude)
+                && !$this->hasForeignCitySelection($viewerCity, $filters);
+        }
+
+        return !$this->hasForeignCitySelection($viewerCity, $filters);
+    }
+
+    private function hasForeignCitySelection(string $viewerCity, array $filters): bool
+    {
+        $selectedCity = trim((string) ($filters['city'] ?? ''));
+        if ($selectedCity !== '') {
+            return strcasecmp($selectedCity, $viewerCity) !== 0;
+        }
+
+        $cities = $filters['cities'] ?? null;
+        if (!is_array($cities) || $cities === []) {
+            return false;
+        }
+
+        foreach ($cities as $city) {
+            $city = trim((string) $city);
+            if ($city === '') {
+                continue;
+            }
+            if (strcasecmp($city, $viewerCity) !== 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function parseFilters(Request $request): array
