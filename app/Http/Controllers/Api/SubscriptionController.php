@@ -9,6 +9,7 @@ use App\Models\UserSubscription;
 use App\Services\ProfileCompletionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class SubscriptionController extends Controller
@@ -55,6 +56,7 @@ class SubscriptionController extends Controller
                     'success' => 200,
                     'has_subscription' => false,
                     'plan' => $freePlan ? $this->formatPlan($freePlan, $user) : null,
+                    'package_badge' => $user->packageBadge(),
                     'status' => 'free',
                     'is_active' => true,
                     'access' => $access,
@@ -63,9 +65,16 @@ class SubscriptionController extends Controller
                 ], 200);
             }
 
+            $packageBadge = $subscription->isActive()
+                ? ($subscription->plan?->badge
+                    ?? ($subscription->plan?->type === 'Free' ? 'Basic' : $subscription->plan?->type)
+                    ?? $user->packageBadge())
+                : null;
+
             return response()->json([
                 'success' => 200,
                 'has_subscription' => true,
+                'package_badge' => $packageBadge,
                 'subscription' => [
                     'id' => $subscription->id,
                     'status' => $subscription->status,
@@ -78,12 +87,20 @@ class SubscriptionController extends Controller
                     'plan' => $subscription->plan ? $this->formatPlan($subscription->plan, $user) : null,
                     'original_price' => $subscription->original_price !== null ? (float) $subscription->original_price : null,
                     'amount_payable' => $subscription->amount_payable !== null ? (float) $subscription->amount_payable : null,
+                    'amount_paid' => $subscription->amount_payable !== null ? (float) $subscription->amount_payable : null,
                     'discount_percent' => (int) ($subscription->discount_percent ?? 0),
                 ],
                 'access' => $access,
                 'profile_completion' => app(ProfileCompletionService::class)->summary($user),
             ], 200);
         } catch (\Exception $e) {
+            Log::error('myPlan API failed', [
+                'user_id' => optional($request->user())->id,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch subscription',

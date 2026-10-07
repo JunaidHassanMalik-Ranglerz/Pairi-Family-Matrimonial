@@ -244,11 +244,11 @@ class MatchController extends Controller
         $user->match_score = $this->matchService->scoreProfile($viewer, $user);
         $user->interest_sent = $viewer->sentInterests()
             ->where('to_user_id', $user->id)
-            ->where('action', 'interest')
+            ->whereIn('action', ['interest', 'super_like'])
             ->exists();
         $user->interest_received = $viewer->receivedInterests()
             ->where('from_user_id', $user->id)
-            ->where('action', 'interest')
+            ->whereIn('action', ['interest', 'super_like'])
             ->exists();
         $user->mutual_match = $user->interest_sent && $user->interest_received;
         $this->matchService->attachDistances($viewer, collect([$user]));

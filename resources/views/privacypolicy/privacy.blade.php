@@ -12,7 +12,7 @@
     }
 
     .banner {
-        background: linear-gradient(115deg, rgba(102, 125, 255, 1) 0%, rgba(122, 140, 255, 1) 89%);
+        background: #6f1115;
 
         padding:60px 0;
         display: flex;

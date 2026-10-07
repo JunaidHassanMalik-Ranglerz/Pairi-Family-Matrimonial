@@ -116,7 +116,7 @@ class ProfileDetailResource extends JsonResource
         return ProfileInterest::query()
             ->where('from_user_id', $viewer->id)
             ->where('to_user_id', $this->id)
-            ->where('action', 'interest')
+            ->whereIn('action', ['interest', 'super_like'])
             ->exists();
     }
 }

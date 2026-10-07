@@ -198,7 +198,7 @@ class PhotoAccessController extends Controller
     private function isMutualMatch(int $firstUserId, int $secondUserId): bool
     {
         $directions = ProfileInterest::query()
-            ->where('action', 'interest')
+            ->whereIn('action', ['interest', 'super_like'])
             ->where(function ($query) use ($firstUserId, $secondUserId) {
                 $query->where(function ($q) use ($firstUserId, $secondUserId) {
                     $q->where('from_user_id', $firstUserId)->where('to_user_id', $secondUserId);

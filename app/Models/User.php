@@ -191,4 +191,21 @@ class User extends Authenticatable
             ->latest()
             ->first();
     }
+
+    /**
+     * Package badge for UI (Free users show "Basic"; paid plans use plan badge/type).
+     */
+    public function packageBadge(): string
+    {
+        $subscription = $this->activeSubscription();
+        $plan = $subscription?->plan;
+
+        if (!$plan || $plan->type === 'Free' || (float) $plan->price <= 0) {
+            return 'Basic';
+        }
+
+        $badge = $plan->badge ?: $plan->type;
+
+        return in_array($badge, ['Basic', 'VIP', 'VVIP'], true) ? $badge : (string) $plan->type;
+    }
 }

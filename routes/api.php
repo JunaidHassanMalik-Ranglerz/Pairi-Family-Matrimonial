@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\ContentController;
 use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\MatchController;
 use App\Http\Controllers\Api\PhotoAccessController;
+use App\Http\Controllers\Api\PremiumFeatureController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReferralController;
 use App\Http\Controllers\Api\SettingsController;
@@ -61,6 +62,12 @@ Route::get('/', function () {
                 'POST /api/photo-access/{user}/request',
                 'POST /api/photo-access-requests/{photoAccessRequest}/respond',
             ],
+            'premium' => [
+                'GET  /api/subscriptions/access',
+                'POST /api/profile/boost',
+                'POST /api/shortlist/{user}/super-like',
+                'POST /api/chats/{user}/start',
+            ],
             'notifications' => [
                 'GET /api/notifications',
                 'POST /api/notifications/{id}/read',
@@ -80,8 +87,8 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/privacy_Policy', fn () => redirect(url('/privacy_Policy')));
-Route::get('/terms_conditions', fn () => redirect(url('/terms_conditions')));
+Route::get('/privacy_Policy', fn () => redirect()->route('legal.privacy.legacy'));
+Route::get('/terms_conditions', fn () => redirect()->route('legal.terms.legacy'));
 
 // Lookup (public)
 Route::get('/countries', [LookupController::class, 'countries']);
@@ -153,6 +160,9 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::get('/shortlist', [ShortlistController::class, 'index']);
     Route::post('/shortlist/{user}/interest', [ShortlistController::class, 'sendInterest']);
     Route::post('/shortlist/{user}/pass', [ShortlistController::class, 'pass']);
+    Route::post('/shortlist/{user}/super-like', [PremiumFeatureController::class, 'superLike']);
+    Route::post('/profile/boost', [PremiumFeatureController::class, 'boost']);
+    Route::post('/chats/{user}/start', [PremiumFeatureController::class, 'startChat']);
 
     Route::get('/photo-access-requests', [PhotoAccessController::class, 'index']);
     Route::post('/photo-access/{user}/request', [PhotoAccessController::class, 'requestAccess']);

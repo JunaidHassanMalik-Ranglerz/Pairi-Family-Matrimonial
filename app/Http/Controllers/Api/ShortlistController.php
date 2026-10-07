@@ -7,13 +7,16 @@ use App\Http\Resources\ProfileCardResource;
 use App\Models\ProfileInterest;
 use App\Models\User;
 use App\Services\MatchService;
+use App\Services\SubscriptionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ShortlistController extends Controller
 {
-    public function __construct(private MatchService $matchService)
-    {
+    public function __construct(
+        private MatchService $matchService,
+        private SubscriptionAccessService $accessService
+    ) {
     }
 
     public function index(Request $request): JsonResponse
@@ -23,9 +26,11 @@ class ShortlistController extends Controller
             $tab = $this->resolveShortlistTab($request->get('tab', 'i_liked'));
 
             if ($tab === 'liked_me') {
+                $this->accessService->assertCan($viewer, 'see_who_liked');
+
                 $userIds = ProfileInterest::query()
                     ->where('to_user_id', $viewer->id)
-                    ->where('action', 'interest')
+                    ->whereIn('action', ['interest', 'super_like'])
                     ->pluck('from_user_id');
 
                 $users = User::query()
@@ -37,7 +42,7 @@ class ShortlistController extends Controller
             } else {
                 $userIds = ProfileInterest::query()
                     ->where('from_user_id', $viewer->id)
-                    ->where('action', 'interest')
+                    ->whereIn('action', ['interest', 'super_like'])
                     ->pluck('to_user_id');
 
                 $users = User::query()
@@ -55,8 +60,12 @@ class ShortlistController extends Controller
                 'tab' => $tab,
                 'tab_label' => $tab === 'liked_me' ? 'Liked Me' : 'Profiles I Liked',
                 'total' => $users->count(),
+                'see_who_liked' => $this->accessService->can($viewer, 'see_who_liked'),
+                'access' => $this->accessService->access($viewer),
                 'profiles' => ProfileCardResource::collection($users),
             ], 200);
+        } catch (\Illuminate\Http\Exceptions\HttpResponseException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
@@ -103,7 +112,7 @@ class ShortlistController extends Controller
                 ->where('to_user_id', $user->id)
                 ->first();
 
-            if ($existing && $existing->action === 'interest') {
+            if ($existing && in_array($existing->action, ['interest', 'super_like'], true)) {
                 $existing->delete();
 
                 return response()->json([
@@ -113,6 +122,7 @@ class ShortlistController extends Controller
                     'mutual_match' => false,
                     'from_user_id' => $sender->id,
                     'to_user_id' => $user->id,
+                    'access' => $this->accessService->access($sender),
                 ], 200);
             }
 
@@ -127,7 +137,7 @@ class ShortlistController extends Controller
             $mutual = ProfileInterest::query()
                 ->where('from_user_id', $user->id)
                 ->where('to_user_id', $sender->id)
-                ->where('action', 'interest')
+                ->whereIn('action', ['interest', 'super_like'])
                 ->exists();
 
             return response()->json([
@@ -139,6 +149,7 @@ class ShortlistController extends Controller
                 'from_user_id' => $sender->id,
                 'to_user_id' => $user->id,
                 'interest_id' => $interest->id,
+                'access' => $this->accessService->access($sender),
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

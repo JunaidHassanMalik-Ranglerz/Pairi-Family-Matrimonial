@@ -189,6 +189,10 @@ class MatchService
             $score += 10;
         }
 
+        if ($candidate->profile_boost_until?->isFuture()) {
+            $score += 25;
+        }
+
         return min($score, 100);
     }
 
@@ -198,7 +202,16 @@ class MatchService
             $candidate->match_score = $this->scoreProfile($viewer, $candidate);
 
             return $candidate;
-        })->sortByDesc('match_score')->values();
+        })->sort(function (User $a, User $b) {
+            $aBoost = $a->profile_boost_until?->isFuture() ? 1 : 0;
+            $bBoost = $b->profile_boost_until?->isFuture() ? 1 : 0;
+
+            if ($aBoost !== $bBoost) {
+                return $bBoost <=> $aBoost;
+            }
+
+            return $b->match_score <=> $a->match_score;
+        })->values();
     }
 
     public function rankProfilesForHome(User $viewer, Collection $candidates): Collection
@@ -208,6 +221,13 @@ class MatchService
 
             return $candidate;
         })->sort(function (User $a, User $b) {
+            $aBoost = $a->profile_boost_until?->isFuture() ? 1 : 0;
+            $bBoost = $b->profile_boost_until?->isFuture() ? 1 : 0;
+
+            if ($aBoost !== $bBoost) {
+                return $bBoost <=> $aBoost;
+            }
+
             $aNew = $this->isNewProfile($a) ? 1 : 0;
             $bNew = $this->isNewProfile($b) ? 1 : 0;
 

@@ -10,6 +10,9 @@ class SubscriptionPlansSeeder extends Seeder
 {
     public function run(): void
     {
+        // App UI shows Free / VIP / VVIP. Keep Basic synced but inactive.
+        $visibleTypes = ['Free', 'VIP', 'VVIP'];
+
         foreach (config('subscription_plans.user_plans') as $plan) {
             Subscription::updateOrCreate(
                 ['type' => $plan['type']],
@@ -22,7 +25,7 @@ class SubscriptionPlansSeeder extends Seeder
                     'payment_status' => $plan['payment_status'],
                     'badge' => $plan['badge'],
                     'features' => $plan['features'],
-                    'status' => 'active',
+                    'status' => in_array($plan['type'], $visibleTypes, true) ? 'active' : 'inactive',
                 ]
             );
         }
