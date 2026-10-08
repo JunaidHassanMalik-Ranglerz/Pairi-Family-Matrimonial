@@ -51,6 +51,14 @@
                                 <option value="marriage_bureau" @selected(request('creation_type') === 'marriage_bureau')>Marriage Bureau</option>
                             </select>
                         </div>
+                        <div class="col-xl col-md-4">
+                            <select name="subscription" class="form-control">
+                                <option value="">Subscription</option>
+                                <option value="needs_verification" @selected(request('subscription') === 'needs_verification')>Needs verification</option>
+                                <option value="verified" @selected(request('subscription') === 'verified')>Verified (paid)</option>
+                                <option value="free" @selected(request('subscription') === 'free')>Free</option>
+                            </select>
+                        </div>
                         <div class="col-xl-auto col-md-4">
                             <button class="btn btn-primary btn-block" type="submit"><i class="fa fa-search"></i></button>
                         </div>
@@ -72,6 +80,7 @@
                                 <th>Email / Phone</th>
                                 <th>Verified</th>
                                 <th>Profile</th>
+                                <th>Subscription</th>
                                 <th>Points</th>
                                 <th>Status</th>
                                 <th>Action</th>
@@ -117,6 +126,21 @@
                                     </span>
                                 </td>
                                 <td>
+                                    @php
+                                        $pendingSub = $user->pendingVerificationSubscription();
+                                        $activeSub = $user->activeSubscription();
+                                        $activePlanType = $activeSub?->plan?->type;
+                                    @endphp
+                                    @if($pendingSub)
+                                        <span class="badge badge-warning">Needs verification</span>
+                                        <br><small>{{ $pendingSub->plan?->name ?? $pendingSub->plan?->type ?? 'Plan' }}</small>
+                                    @elseif($activePlanType && $activePlanType !== 'Free' && (float) ($activeSub->plan?->price ?? 0) > 0)
+                                        <span class="badge badge-success">{{ $activePlanType }}</span>
+                                    @else
+                                        <span class="badge badge-secondary">Free</span>
+                                    @endif
+                                </td>
+                                <td>
                                     <strong>{{ $user->reward_points }}</strong>
                                 </td>
                                 <td>
@@ -131,6 +155,9 @@
                                 <td>
                                     <div class="table-actions">
                                         <a href="{{ route('admin.users.show', $user->id) }}" class="btn btn-info btn-sm" title="View"><i class="fa fa-eye"></i></a>
+                                        @if($user->pendingVerificationSubscription())
+                                            <a href="{{ route('admin.users.show', $user->id) }}#subscriptions" class="btn btn-warning btn-sm" title="Verify subscription">Verify</a>
+                                        @endif
                                         @if($user->hasPendingReactivationRequest())
                                             <button type="button" class="btn btn-success btn-sm toggle-status-btn" data-url="{{ route('admin.users.toggle-status', $user->id) }}" title="Approve reactivation">
                                                 Activate

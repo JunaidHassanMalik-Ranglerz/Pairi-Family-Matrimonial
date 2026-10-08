@@ -13,7 +13,13 @@ class UserController extends Controller
 {
     public function index(Request $request)
     {
-        $query = User::query()->with('marriageBureau:id,name')->latest();
+        $query = User::query()
+            ->with([
+                'marriageBureau:id,name',
+                'pendingVerificationSubscriptions.plan',
+            ])
+            ->withActivePlan()
+            ->latest();
 
         if ($search = $request->get('search')) {
             $query->where(function ($q) use ($search) {
@@ -54,6 +60,35 @@ class UserController extends Controller
                 $query->whereNull('marriage_bureau_id');
             } elseif ($request->creation_type === 'marriage_bureau') {
                 $query->whereNotNull('marriage_bureau_id');
+            }
+        }
+
+        if ($request->filled('subscription')) {
+            if ($request->subscription === 'needs_verification') {
+                $query->whereHas('pendingVerificationSubscriptions');
+            } elseif ($request->subscription === 'verified') {
+                $query->whereHas('subscriptions', function ($q) {
+                    $q->where('status', 'verified')
+                        ->whereNull('cancelled_at')
+                        ->where(function ($sub) {
+                            $sub->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                        })
+                        ->whereHas('plan', function ($plan) {
+                            $plan->where('type', '!=', 'Free')->where('price', '>', 0);
+                        });
+                });
+            } elseif ($request->subscription === 'free') {
+                $query->whereDoesntHave('pendingVerificationSubscriptions')
+                    ->whereDoesntHave('subscriptions', function ($q) {
+                        $q->where('status', 'verified')
+                            ->whereNull('cancelled_at')
+                            ->where(function ($sub) {
+                                $sub->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                            })
+                            ->whereHas('plan', function ($plan) {
+                                $plan->where('type', '!=', 'Free')->where('price', '>', 0);
+                            });
+                    });
             }
         }
 
@@ -177,7 +212,7 @@ class UserController extends Controller
     {
         $request->validate([
             'user_subscription_id' => 'required|exists:user_subscriptions,id',
-            'payment_screenshot' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'payment_screenshot' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
         ]);
 
         $subscription = \App\Models\UserSubscription::where('user_id', $user->id)
@@ -185,25 +220,37 @@ class UserController extends Controller
             ->firstOrFail();
 
         if ($request->hasFile('payment_screenshot')) {
-            $path = $request->file('payment_screenshot')->store('payment_screenshots', 'public');
-            $subscription->load('plan');
-            $subscription->payment_screenshot = $path;
-            $subscription->status = 'verified';
-            $subscription->starts_at = now();
-            $subscription->expires_at = $subscription->plan
-                ? $subscription->plan->expiresAtFrom(now())
-                : now()->addDays(30);
-            $subscription->save();
+            $subscription->payment_screenshot = $request->file('payment_screenshot')
+                ->store('payment_screenshots', 'public');
+        }
 
+        if (!$subscription->payment_screenshot) {
             return response()->json([
-                'success' => true,
-                'message' => 'Subscription payment verified successfully.',
+                'success' => false,
+                'message' => 'Payment screenshot is required.',
             ]);
         }
 
+        $subscription->load('plan');
+        $subscription->status = 'verified';
+        $subscription->starts_at = now();
+        $subscription->expires_at = $subscription->plan
+            ? $subscription->plan->expiresAtFrom(now())
+            : now()->addDays(30);
+        $subscription->save();
+
+        \App\Models\UserSubscription::query()
+            ->where('user_id', $user->id)
+            ->where('id', '!=', $subscription->id)
+            ->whereNull('cancelled_at')
+            ->whereIn('status', ['verified', 'free', 'paid', 'pending'])
+            ->update(['cancelled_at' => now()]);
+
         return response()->json([
-            'success' => false,
-            'message' => 'Payment screenshot is required.',
+            'success' => true,
+            'message' => 'Subscription payment verified successfully.',
+            'pending_subscription_count' => User::pendingSubscriptionVerificationCount(),
+            'pending_subscription_label' => User::pendingSubscriptionVerificationLabel(),
         ]);
     }
 }

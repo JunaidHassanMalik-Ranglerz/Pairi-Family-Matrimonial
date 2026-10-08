@@ -7,6 +7,7 @@ use App\Http\Resources\UserResource;
 use App\Support\PhoneVerification;
 use App\Models\ProfileInterest;
 use App\Models\Referral;
+use App\Models\ContactMessage;
 use App\Models\SystemSetting;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -44,6 +45,11 @@ class SettingsController extends Controller
                     'additional_photos_visible' => (bool) $user->additional_photos_visible,
                 ],
                 'phone_verification' => PhoneVerification::statusPayload($user),
+                'support' => [
+                    'email' => ContactMessage::supportEmail(),
+                    'label' => 'Email us',
+                    'reply_time' => 'Typical reply time: within 24 hours',
+                ],
             ], 200);
         } catch (\Exception $e) {
             return response()->json([

@@ -7,6 +7,7 @@ use App\Http\Resources\ProfileCardResource;
 use App\Http\Resources\ProfileDetailResource;
 use App\Models\User;
 use App\Services\MatchService;
+use App\Services\SubscriptionAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -53,9 +54,15 @@ class MatchController extends Controller
                 collect([$topMatch])->filter()->concat($suggested)
             );
 
+            $plan = $this->viewerPlanPayload($viewer);
+
             return response()->json([
                 'success' => 200,
                 'greeting' => $this->greeting($viewer->name),
+                'package_badge' => $plan['package_badge'],
+                'membership_badge' => $plan['membership_badge'],
+                'current_plan_type' => $plan['current_plan_type'],
+                'plan' => $plan,
                 'top_match' => $topMatch ? ProfileCardResource::make($topMatch) : null,
                 'suggested_matches' => ProfileCardResource::collection($suggested),
                 'total_matches' => $ranked->count(),
@@ -353,5 +360,22 @@ class MatchController extends Controller
         }
 
         return 'Best match profile loaded. You have not liked this profile yet.';
+    }
+
+    private function viewerPlanPayload(User $viewer): array
+    {
+        $accessService = app(SubscriptionAccessService::class);
+        $activePlan = $accessService->activePlan($viewer);
+        $membershipBadge = $accessService->membershipBadge($viewer);
+        $packageBadge = $viewer->packageBadge();
+        $planType = $activePlan?->type ?? 'Free';
+
+        return [
+            'current_plan_type' => $planType,
+            'plan_name' => $activePlan?->name ?? 'Free',
+            'package_badge' => $packageBadge,
+            'membership_badge' => $membershipBadge,
+            'is_active' => (bool) $viewer->activeSubscription()?->isActive(),
+        ];
     }
 }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\ContactSupportController;
 use App\Http\Controllers\Api\ContentController;
 use App\Http\Controllers\Api\LookupController;
 use App\Http\Controllers\Api\MatchController;
@@ -83,6 +84,10 @@ Route::get('/', function () {
                 'GET /api/terms-conditions',
                 'GET /api/privacy-policy',
             ],
+            'contact_support' => [
+                'GET  /api/contact-support/email',
+                'POST /api/contact-support',
+            ],
         ],
     ]);
 });
@@ -96,6 +101,7 @@ Route::get('/profile-options', [LookupController::class, 'profileOptions']);
 Route::get('/faqs', [ContentController::class, 'faqs']);
 Route::get('/terms-conditions', [ContentController::class, 'termsConditions']);
 Route::get('/privacy-policy', [ContentController::class, 'privacyPolicy']);
+Route::get('/contact-support/email', [ContactSupportController::class, 'email']);
 Route::get('/lookups/{type}', [LookupController::class, 'lookup']);
 foreach (array_keys(config('profile_lookups', [])) as $lookupType) {
     if ($lookupType === 'countries') {
@@ -172,8 +178,11 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     // Subscriptions and Referrals
     Route::get('/subscriptions', [\App\Http\Controllers\Api\SubscriptionController::class, 'index']);
     Route::get('/subscriptions/my-plan', [\App\Http\Controllers\Api\SubscriptionController::class, 'myPlan']);
+    Route::get('/subscriptions/current', [\App\Http\Controllers\Api\SubscriptionController::class, 'current']);
     Route::get('/subscriptions/access', [\App\Http\Controllers\Api\SubscriptionController::class, 'access']);
     Route::post('/subscriptions/subscribe', [\App\Http\Controllers\Api\SubscriptionController::class, 'subscribe']);
+    Route::post('/subscriptions/upgrade', [\App\Http\Controllers\Api\SubscriptionController::class, 'upgrade']);
+    Route::post('/subscriptions/pay-with-card', [\App\Http\Controllers\Api\SubscriptionController::class, 'payWithCard']);
     Route::post('/subscriptions/upload-payment', [\App\Http\Controllers\Api\SubscriptionController::class, 'uploadPayment']);
     Route::post('/subscriptions/cancel', [\App\Http\Controllers\Api\SubscriptionController::class, 'cancel']);
     Route::get('/referrals/link', [ReferralController::class, 'link']);
@@ -181,6 +190,8 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::get('/referrals/history', [ReferralController::class, 'history']);
     Route::get('/referrals/rewards', [ReferralController::class, 'rewards']);
     Route::post('/referrals/redeem', [ReferralController::class, 'redeem']);
+
+    Route::post('/contact-support', [ContactSupportController::class, 'send']);
 
     // Settings & Account
     Route::get('/settings', [SettingsController::class, 'index']);

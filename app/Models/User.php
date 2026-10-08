@@ -150,6 +150,37 @@ class User extends Authenticatable
         return $this->hasMany(UserSubscription::class);
     }
 
+    public function pendingVerificationSubscriptions(): HasMany
+    {
+        return $this->hasMany(UserSubscription::class)
+            ->whereIn('status', ['paid', 'pending'])
+            ->whereNull('cancelled_at')
+            ->latest();
+    }
+
+    public function pendingVerificationSubscription(): ?UserSubscription
+    {
+        if ($this->relationLoaded('pendingVerificationSubscriptions')) {
+            return $this->pendingVerificationSubscriptions->first();
+        }
+
+        return $this->pendingVerificationSubscriptions()->with('plan')->first();
+    }
+
+    public static function pendingSubscriptionVerificationCount(): int
+    {
+        return (int) static::query()
+            ->whereHas('pendingVerificationSubscriptions')
+            ->count();
+    }
+
+    public static function pendingSubscriptionVerificationLabel(): string
+    {
+        $count = static::pendingSubscriptionVerificationCount();
+
+        return $count > 10 ? '10+' : (string) $count;
+    }
+
     public function scopeWithActivePlan($query)
     {
         return $query->with(['subscriptions' => function ($q) {

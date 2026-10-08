@@ -179,15 +179,15 @@
                                             <td>
                                                 @if($sub->status == 'verified' || $sub->status == 'free')
                                                     <span class="badge badge-success">{{ ucfirst($sub->status) }}</span>
-                                                @elseif($sub->status == 'paid')
-                                                    <span class="badge badge-warning">Paid (Pending Verification)</span>
+                                                @elseif(in_array($sub->status, ['paid', 'pending'], true))
+                                                    <span class="badge badge-warning">Needs verification</span>
                                                 @else
                                                     <span class="badge badge-secondary">{{ ucfirst($sub->status) }}</span>
                                                 @endif
                                             </td>
                                             <td>{{ $sub->created_at->format('d M Y') }}</td>
                                             <td>
-                                                @if($sub->status == 'paid')
+                                                @if(in_array($sub->status, ['paid', 'pending'], true))
                                                     <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#verifySubscriptionModal" data-sub-id="{{ $sub->id }}">
                                                         Verify Payment
                                                     </button>
@@ -307,6 +307,9 @@ $('#verifySubscriptionForm').on('submit', function(e) {
         data: formData,
         success: function (res) {
             if (res.success) {
+                if (typeof res.pending_subscription_label !== 'undefined') {
+                    $('.js-pending-subscription-count').text(res.pending_subscription_label);
+                }
                 Swal.fire('Success', res.message, 'success').then(() => location.reload());
             } else {
                 Swal.fire('Error', res.message, 'error');

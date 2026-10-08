@@ -183,16 +183,26 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
     box-sizing: border-box;
     background: #7B1E3A;
     color: #ffffff !important;
-    font-size: 9px;
+    font-size: 8px;
     font-weight: 700;
     line-height: 1;
     white-space: nowrap;
-    overflow: hidden;
 }
 
 .sidebar-submenu li a.active .sidebar-count-badge {
     background: #7B1E3A;
     color: #ffffff !important;
+}
+
+.sidebar-count-badge.sidebar-count-warning {
+    background: #f39c12;
+    margin-left: 6px;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    aspect-ratio: 1 / 1;
+    padding: 0;
 }
 </style>
 
@@ -214,7 +224,8 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
             $featuresOpen = request()->routeIs('admin.subscriptions.*', 'admin.notifications.*');
             $marriageBureauOpen = request()->routeIs('admin.marriage-bureaus.*', 'admin.marriage-bureau-subscriptions.*');
             $profileSettingsOpen = request()->routeIs('admin.lookups.*');
-            $configurationOpen = request()->routeIs('admin.settings.*', 'admin.faqs.*', 'admin.content.*');
+            $configurationOpen = request()->routeIs('admin.settings.*', 'admin.faqs.*', 'admin.content.*', 'admin.contact-messages.*');
+            $unreadContactLabel = \App\Models\ContactMessage::unreadLabel();
         @endphp
 
         <ul class="sidebar-menu" id="adminSidebarMenu">
@@ -240,10 +251,12 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
                                 ->whereNotNull('reactivation_requested_at')
                                 ->count();
                             $reactivationLabel = $reactivationCount > 10 ? '10+' : (string) $reactivationCount;
+                            $pendingSubscriptionLabel = \App\Models\User::pendingSubscriptionVerificationLabel();
                         @endphp
                         <a href="{{ route('admin.users.index') }}" class="{{ request()->routeIs('admin.users.*') ? 'active' : '' }}">
                             {{ __('All Users') }}
-                            <span class="sidebar-count-badge">{{ $reactivationLabel }}</span>
+                            <span class="sidebar-count-badge" title="Reactivation requested">{{ $reactivationLabel }}</span>
+                            <span class="sidebar-count-badge sidebar-count-warning js-pending-subscription-count" title="Subscriptions awaiting verification">{{ $pendingSubscriptionLabel }}</span>
                         </a>
                     </li>
                 </ul>
@@ -303,6 +316,12 @@ body.sidebar-gone .main-sidebar .sidebar-submenu {
                 </a>
                 <ul id="configurationMenu" class="sidebar-submenu collapse {{ $configurationOpen ? 'show' : '' }}" data-bs-parent="#adminSidebarMenu">
                     <li><a href="{{ route('admin.settings.index') }}" class="{{ request()->routeIs('admin.settings.*') ? 'active' : '' }}">{{ __('System Settings') }}</a></li>
+                    <li>
+                        <a href="{{ route('admin.contact-messages.index') }}" class="{{ request()->routeIs('admin.contact-messages.*') ? 'active' : '' }}">
+                            {{ __('Contact Messages') }}
+                            <span class="sidebar-count-badge" title="Unread contact messages">{{ $unreadContactLabel }}</span>
+                        </a>
+                    </li>
                     <li><a href="{{ route('admin.faqs.index') }}" class="{{ request()->routeIs('admin.faqs.*') ? 'active' : '' }}">{{ __('FAQs') }}</a></li>
                     <li><a href="{{ route('admin.content.edit', ['type' => 'terms-conditions']) }}" class="{{ request()->routeIs('admin.content.*') && request()->route('type') === 'terms-conditions' ? 'active' : '' }}">{{ __('Terms & Conditions') }}</a></li>
                     <li><a href="{{ route('admin.content.edit', ['type' => 'privacy-policy']) }}" class="{{ request()->routeIs('admin.content.*') && request()->route('type') === 'privacy-policy' ? 'active' : '' }}">{{ __('Privacy Policy') }}</a></li>

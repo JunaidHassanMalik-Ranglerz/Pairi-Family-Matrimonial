@@ -231,6 +231,7 @@ trait PermissionsTrait
         'group_name'  => 'contact message',
         'permissions' => [
             'contact.message.view',
+            'contact.message.update',
             'contact.message.delete',
         ],
     ];

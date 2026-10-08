@@ -49,6 +49,8 @@ class SubscriptionController extends Controller
                 ->latest()
                 ->first();
 
+            $upgrade = $this->upgradePayload($user);
+
             if (!$subscription) {
                 $freePlan = Subscription::where('type', 'Free')->where('status', 'active')->first();
 
@@ -59,6 +61,8 @@ class SubscriptionController extends Controller
                     'package_badge' => $user->packageBadge(),
                     'status' => 'free',
                     'is_active' => true,
+                    'current_plan' => $this->currentPlanCard($user),
+                    ...$upgrade,
                     'access' => $access,
                     'profile_completion' => app(ProfileCompletionService::class)->summary($user),
                     'message' => 'You are on the Free plan.',
@@ -69,12 +73,14 @@ class SubscriptionController extends Controller
                 ? ($subscription->plan?->badge
                     ?? ($subscription->plan?->type === 'Free' ? 'Basic' : $subscription->plan?->type)
                     ?? $user->packageBadge())
-                : null;
+                : $user->packageBadge();
 
             return response()->json([
                 'success' => 200,
                 'has_subscription' => true,
                 'package_badge' => $packageBadge,
+                'current_plan' => $this->currentPlanCard($user),
+                ...$upgrade,
                 'subscription' => [
                     'id' => $subscription->id,
                     'status' => $subscription->status,
@@ -104,6 +110,37 @@ class SubscriptionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch subscription',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    public function current(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            $card = $this->currentPlanCard($user);
+            $upgrade = $this->upgradePayload($user);
+
+            return response()->json([
+                'success' => 200,
+                'current_plan' => $card,
+                'package_badge' => $card['package_badge'],
+                'membership_badge' => $card['membership_badge'],
+                'current_plan_type' => $card['plan_type'],
+                'status_label' => $card['status_label'],
+                'is_active' => $card['is_active'],
+                ...$upgrade,
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('current plan API failed', [
+                'user_id' => optional($request->user())->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load current plan.',
                 'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
@@ -218,6 +255,267 @@ class SubscriptionController extends Controller
         }
     }
 
+    public function upgrade(Request $request): JsonResponse
+    {
+        try {
+            $data = $request->validate([
+                'payment_method' => 'nullable|string|in:easypaisa,jazzcash,bank,card,google_pay,apple_pay',
+            ]);
+
+            $user = $request->user();
+            $active = $user->activeSubscription();
+            $currentType = $active?->plan?->type ?? 'Free';
+            if (!$active || $currentType === 'Free' || (float) ($active->plan?->price ?? 0) <= 0) {
+                $currentType = 'Free';
+            }
+
+            if ($currentType === 'VVIP') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You are already on the VVIP plan.',
+                    'show_upgrade_option' => false,
+                    'can_upgrade_to_vvip' => false,
+                    'current_plan_type' => 'VVIP',
+                ], 422);
+            }
+
+            if (!in_array($currentType, ['Free', 'VIP'], true)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only Free or VIP members can upgrade to VVIP.',
+                    'show_upgrade_option' => false,
+                    'can_upgrade_to_vvip' => false,
+                    'current_plan_type' => $currentType,
+                ], 422);
+            }
+
+            $pending = UserSubscription::where('user_id', $user->id)
+                ->whereIn('status', ['paid', 'pending'])
+                ->whereNull('cancelled_at')
+                ->exists();
+
+            if ($pending) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You already have a pending subscription awaiting verification.',
+                    'upgrade_pending' => true,
+                    'show_upgrade_option' => false,
+                    'can_upgrade_to_vvip' => false,
+                    'current_plan_type' => $currentType,
+                ], 422);
+            }
+
+            $plan = Subscription::where('type', 'VVIP')->where('status', 'active')->first();
+            if (!$plan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'VVIP plan is not available.',
+                ], 404);
+            }
+
+            $pricing = app(ProfileCompletionService::class)->pricingFor($user, $plan);
+            $subscriptionData = [
+                'user_id' => $user->id,
+                'subscription_id' => $plan->id,
+                'status' => 'paid',
+                'payment_method' => $data['payment_method'] ?? null,
+                'starts_at' => null,
+                'expires_at' => null,
+            ];
+
+            if (Schema::hasColumn('user_subscriptions', 'original_price')) {
+                $subscriptionData['original_price'] = $pricing['original_price'];
+                $subscriptionData['amount_payable'] = $pricing['payable_price'];
+                $subscriptionData['discount_percent'] = $pricing['discount_percent'];
+                $subscriptionData['discount_reason'] = $pricing['discount_reason'];
+            }
+
+            $subscription = UserSubscription::create($subscriptionData);
+            $access = app(\App\Services\SubscriptionAccessService::class)->access($user);
+
+            return response()->json([
+                'success' => 200,
+                'message' => $pricing['discount_applied']
+                    ? 'VVIP upgrade submitted with profile-completion discount. Please complete payment.'
+                    : 'VVIP upgrade submitted. Please complete payment of the full VVIP price.',
+                'current_plan_type' => $currentType,
+                'show_upgrade_option' => false,
+                'can_upgrade_to_vvip' => false,
+                'upgrade_pending' => true,
+                'subscription' => [
+                    'id' => $subscription->id,
+                    'status' => $subscription->status,
+                    'from_plan' => $currentType,
+                    'to_plan' => 'VVIP',
+                    'plan' => $this->formatPlan($plan, $user),
+                    'requires_payment_upload' => true,
+                    'pricing' => [
+                        'original_price' => $pricing['original_price'],
+                        'payable_price' => $pricing['payable_price'],
+                        'discount_percent' => $pricing['discount_percent'],
+                        'discount_applied' => $pricing['discount_applied'],
+                        'discount_reason' => $pricing['discount_reason'],
+                    ],
+                ],
+                'access' => $access,
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            Log::error('upgrade API failed', [
+                'user_id' => optional($request->user())->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to upgrade subscription.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    public function payWithCard(Request $request): JsonResponse
+    {
+        try {
+            $data = $request->validate([
+                'subscription_id' => 'required|exists:subscriptions,id',
+                'card_holder_name' => 'required|string|min:2|max:100',
+                'card_number' => ['required', 'string', 'regex:/^[0-9\s]{13,23}$/'],
+                'expiry_date' => ['required', 'string', 'regex:/^(0[1-9]|1[0-2])\s*\/\s*([0-9]{2})$/'],
+                'cvv' => ['required', 'string', 'regex:/^[0-9]{3,4}$/'],
+            ]);
+
+            $user = $request->user();
+            $plan = Subscription::where('id', $data['subscription_id'])
+                ->where('status', 'active')
+                ->firstOrFail();
+
+            if ((float) $plan->price <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Card payment is not required for the Free plan.',
+                ], 422);
+            }
+
+            $cardNumber = preg_replace('/\s+/', '', $data['card_number']);
+            if (!$this->isValidCardNumber($cardNumber)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid card number.',
+                    'errors' => ['card_number' => ['The card number is invalid.']],
+                ], 422);
+            }
+
+            $expiry = $this->parseCardExpiry($data['expiry_date']);
+            if (!$expiry) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid or expired card expiry date. Use MM/YY.',
+                    'errors' => ['expiry_date' => ['The expiry date is invalid or has passed.']],
+                ], 422);
+            }
+
+            $pending = UserSubscription::where('user_id', $user->id)
+                ->whereIn('status', ['paid', 'pending'])
+                ->exists();
+
+            if ($pending) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You already have a pending subscription awaiting verification.',
+                ], 422);
+            }
+
+            $active = UserSubscription::where('user_id', $user->id)
+                ->whereIn('status', ['verified', 'free'])
+                ->where(function ($q) {
+                    $q->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                })
+                ->whereNull('cancelled_at')
+                ->exists();
+
+            if ($active) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You already have an active subscription.',
+                ], 422);
+            }
+
+            $pricing = app(ProfileCompletionService::class)->pricingFor($user, $plan);
+            $brand = $this->detectCardBrand($cardNumber);
+            $paymentRef = 'CARD-' . strtoupper(substr(uniqid('', true), -10));
+
+            $subscriptionData = [
+                'user_id' => $user->id,
+                'subscription_id' => $plan->id,
+                'status' => 'paid',
+                'payment_method' => 'card',
+                'card_holder_name' => trim($data['card_holder_name']),
+                'card_last_four' => substr($cardNumber, -4),
+                'card_brand' => $brand,
+                'card_expiry' => $expiry['label'],
+                'card_payment_ref' => $paymentRef,
+                'starts_at' => null,
+                'expires_at' => null,
+            ];
+
+            if (Schema::hasColumn('user_subscriptions', 'original_price')) {
+                $subscriptionData['original_price'] = $pricing['original_price'];
+                $subscriptionData['amount_payable'] = $pricing['payable_price'];
+                $subscriptionData['discount_percent'] = $pricing['discount_percent'];
+                $subscriptionData['discount_reason'] = $pricing['discount_reason'];
+            }
+
+            $subscription = UserSubscription::create($subscriptionData);
+
+            // CVV and full card number are validated only — never persisted (PCI).
+            return response()->json([
+                'success' => 200,
+                'message' => 'Card details submitted successfully. Please wait for payment verification.',
+                'requires_admin_verification' => true,
+                'subscription' => [
+                    'id' => $subscription->id,
+                    'status' => $subscription->status,
+                    'payment_method' => 'card',
+                    'payment_ref' => $paymentRef,
+                    'card' => [
+                        'holder_name' => $subscription->card_holder_name,
+                        'brand' => $subscription->card_brand,
+                        'last_four' => $subscription->card_last_four,
+                        'expiry' => $subscription->card_expiry,
+                        'masked_number' => '**** **** **** ' . $subscription->card_last_four,
+                    ],
+                    'plan' => $this->formatPlan($plan, $user),
+                    'pricing' => [
+                        'original_price' => $pricing['original_price'],
+                        'payable_price' => $pricing['payable_price'],
+                        'discount_percent' => $pricing['discount_percent'],
+                        'discount_applied' => $pricing['discount_applied'],
+                        'discount_reason' => $pricing['discount_reason'],
+                    ],
+                ],
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('payWithCard API failed', [
+                'user_id' => optional($request->user())->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to process card payment.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
     public function uploadPayment(Request $request): JsonResponse
     {
         try {
@@ -285,6 +583,80 @@ class SubscriptionController extends Controller
                 'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
+    }
+
+    private function currentPlanCard(User $user): array
+    {
+        $subscription = $user->activeSubscription();
+        $plan = $subscription?->plan
+            ?? Subscription::where('type', 'Free')->where('status', 'active')->first();
+        $planType = $plan?->type ?? 'Free';
+        $isPaid = $plan && $planType !== 'Free' && (float) $plan->price > 0;
+        $isActive = $subscription?->isActive() ?? true;
+        $statusLabel = $isActive ? 'Active' : 'Inactive';
+        $price = (float) ($plan?->price ?? 0);
+        $durationUnit = strtolower((string) ($plan?->duration_unit ?? 'months'));
+        $pricePeriod = $durationUnit === 'months' ? '/month' : '/'.$durationUnit;
+        $renewsAt = $subscription?->expires_at;
+
+        return [
+            'title' => ($plan?->name ?? 'Free Plan').' — '.$statusLabel,
+            'plan_name' => $plan?->name ?? 'Free',
+            'plan_type' => $isPaid ? $planType : 'Free',
+            'package_badge' => $user->packageBadge(),
+            'membership_badge' => app(\App\Services\SubscriptionAccessService::class)->membershipBadge($user),
+            'status' => $subscription?->status ?? 'free',
+            'status_label' => $statusLabel,
+            'is_active' => $isActive,
+            'price' => $price,
+            'price_label' => $isPaid
+                ? 'PKR '.number_format($price, 0).$pricePeriod
+                : 'Free',
+            'renews_at' => $renewsAt?->toIso8601String(),
+            'renews_label' => $renewsAt ? 'Renews '.$renewsAt->format('d M Y') : null,
+            'starts_at' => $subscription?->starts_at?->toIso8601String(),
+            'subscription_id' => $subscription?->id,
+        ];
+    }
+
+    private function upgradePayload(User $user): array
+    {
+        $active = $user->activeSubscription();
+        $planType = $active?->plan?->type ?? 'Free';
+        if (!$active || $planType === 'Free' || (float) ($active->plan?->price ?? 0) <= 0) {
+            $planType = 'Free';
+        }
+
+        $pending = UserSubscription::with('plan')
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['paid', 'pending'])
+            ->whereNull('cancelled_at')
+            ->latest()
+            ->first();
+
+        $upgradePending = (bool) ($pending && $pending->plan?->type === 'VVIP');
+        $showUpgrade = in_array($planType, ['Free', 'VIP'], true) && !$pending;
+        $vvipPlan = $showUpgrade
+            ? Subscription::where('type', 'VVIP')->where('status', 'active')->first()
+            : null;
+
+        return [
+            'current_plan_type' => $planType,
+            'show_upgrade_option' => $showUpgrade,
+            'can_upgrade_to_vvip' => $showUpgrade,
+            'upgrade_pending' => $upgradePending,
+            'upgrade_option' => ($showUpgrade && $vvipPlan)
+                ? [
+                    'from' => $planType,
+                    'to' => 'VVIP',
+                    'label' => 'Upgrade to VVIP',
+                    'plan' => $this->formatPlan($vvipPlan, $user),
+                    'message' => $planType === 'Free'
+                        ? 'Upgrade from Free to VVIP for unlimited chats, boosts, and super likes.'
+                        : 'Upgrade to VVIP for unlimited boosts and super likes.',
+                ]
+                : null,
+        ];
     }
 
     private function formatPlan(Subscription $plan, ?User $user = null): array
@@ -368,5 +740,60 @@ class SubscriptionController extends Controller
         }
 
         return $value ? (string) $value : 'No';
+    }
+
+    private function isValidCardNumber(string $number): bool
+    {
+        if (!preg_match('/^[0-9]{13,19}$/', $number)) {
+            return false;
+        }
+
+        $sum = 0;
+        $alt = false;
+        for ($i = strlen($number) - 1; $i >= 0; $i--) {
+            $digit = (int) $number[$i];
+            if ($alt) {
+                $digit *= 2;
+                if ($digit > 9) {
+                    $digit -= 9;
+                }
+            }
+            $sum += $digit;
+            $alt = !$alt;
+        }
+
+        return $sum % 10 === 0;
+    }
+
+    private function parseCardExpiry(string $expiry): ?array
+    {
+        if (!preg_match('/^(0[1-9]|1[0-2])\s*\/\s*([0-9]{2})$/', trim($expiry), $matches)) {
+            return null;
+        }
+
+        $month = (int) $matches[1];
+        $year = 2000 + (int) $matches[2];
+        $expiresAt = now()->setDate($year, $month, 1)->endOfMonth();
+
+        if ($expiresAt->isPast()) {
+            return null;
+        }
+
+        return [
+            'month' => sprintf('%02d', $month),
+            'year' => (string) $year,
+            'label' => sprintf('%02d/%02d', $month, $year % 100),
+        ];
+    }
+
+    private function detectCardBrand(string $number): string
+    {
+        return match (true) {
+            (bool) preg_match('/^4/', $number) => 'Visa',
+            (bool) preg_match('/^(5[1-5]|2[2-7])/', $number) => 'Mastercard',
+            (bool) preg_match('/^6/', $number) => 'RuPay',
+            (bool) preg_match('/^3[47]/', $number) => 'Amex',
+            default => 'Card',
+        };
     }
 }

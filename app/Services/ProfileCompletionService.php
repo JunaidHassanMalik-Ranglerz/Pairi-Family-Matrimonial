@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Subscription;
 use App\Models\User;
+use App\Models\UserSubscription;
+use Illuminate\Support\Facades\Schema;
 
 class ProfileCompletionService
 {
@@ -79,9 +81,22 @@ class ProfileCompletionService
         return empty($this->missingOptionalFields($user));
     }
 
+    public function hasUsedProfileCompletionDiscount(User $user): bool
+    {
+        if (!Schema::hasColumn('user_subscriptions', 'discount_percent')) {
+            return false;
+        }
+
+        return UserSubscription::query()
+            ->where('user_id', $user->id)
+            ->where('discount_percent', '>', 0)
+            ->exists();
+    }
+
     public function isEligibleForDiscount(User $user): bool
     {
-        return $this->hasAllOptionalFieldsCompleted($user);
+        return $this->isFullyCompleted($user)
+            && !$this->hasUsedProfileCompletionDiscount($user);
     }
 
     public function summary(User $user): array
@@ -90,11 +105,15 @@ class ProfileCompletionService
         $missing = $this->missingOptionalFields($user);
         $total = count($fields);
         $completed = $total - count($missing);
+        $discountUsed = $this->hasUsedProfileCompletionDiscount($user);
+        $eligible = $this->isEligibleForDiscount($user);
 
         return [
             'optional_profile_completed' => empty($missing),
-            'discount_eligible' => empty($missing),
-            'discount_percent' => empty($missing) ? (int) config('profile_completion.discount_percent', 50) : 0,
+            'profile_fully_completed' => $this->isFullyCompleted($user),
+            'discount_used' => $discountUsed,
+            'discount_eligible' => $eligible,
+            'discount_percent' => $eligible ? (int) config('profile_completion.discount_percent', 50) : 0,
             'completed_count' => $completed,
             'total_count' => $total,
             'missing_fields' => $missing,
