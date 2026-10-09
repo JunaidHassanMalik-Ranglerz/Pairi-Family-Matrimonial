@@ -65,6 +65,8 @@ Route::get('/', function () {
             ],
             'premium' => [
                 'GET  /api/subscriptions/access',
+                'GET  /api/subscriptions/billing-cycle',
+                'POST /api/subscriptions/billing-cycle',
                 'POST /api/profile/boost',
                 'POST /api/shortlist/{user}/super-like',
                 'POST /api/chats/{user}/start',
@@ -180,6 +182,8 @@ Route::middleware(['auth:sanctum', 'account.active'])->group(function () {
     Route::get('/subscriptions/my-plan', [\App\Http\Controllers\Api\SubscriptionController::class, 'myPlan']);
     Route::get('/subscriptions/current', [\App\Http\Controllers\Api\SubscriptionController::class, 'current']);
     Route::get('/subscriptions/access', [\App\Http\Controllers\Api\SubscriptionController::class, 'access']);
+    Route::get('/subscriptions/billing-cycle', [\App\Http\Controllers\Api\SubscriptionController::class, 'billingCycle']);
+    Route::post('/subscriptions/billing-cycle', [\App\Http\Controllers\Api\SubscriptionController::class, 'switchBillingCycle']);
     Route::post('/subscriptions/subscribe', [\App\Http\Controllers\Api\SubscriptionController::class, 'subscribe']);
     Route::post('/subscriptions/upgrade', [\App\Http\Controllers\Api\SubscriptionController::class, 'upgrade']);
     Route::post('/subscriptions/pay-with-card', [\App\Http\Controllers\Api\SubscriptionController::class, 'payWithCard']);

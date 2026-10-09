@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
+use App\Models\SystemSetting;
 use App\Models\User;
 use App\Models\UserSubscription;
 use App\Services\ProfileCompletionService;
@@ -63,6 +64,7 @@ class SubscriptionController extends Controller
                     'is_active' => true,
                     'current_plan' => $this->currentPlanCard($user),
                     ...$upgrade,
+                    'billing_cycle' => $this->billingCyclePayload($user),
                     'access' => $access,
                     'profile_completion' => app(ProfileCompletionService::class)->summary($user),
                     'message' => 'You are on the Free plan.',
@@ -81,10 +83,12 @@ class SubscriptionController extends Controller
                 'package_badge' => $packageBadge,
                 'current_plan' => $this->currentPlanCard($user),
                 ...$upgrade,
+                'billing_cycle' => $this->billingCyclePayload($user),
                 'subscription' => [
                     'id' => $subscription->id,
                     'status' => $subscription->status,
                     'is_active' => $subscription->isActive(),
+                    'billing_cycle' => $subscription->billing_cycle ?? 'monthly',
                     'payment_method' => $subscription->payment_method,
                     'starts_at' => $subscription->starts_at?->toIso8601String(),
                     'expires_at' => $subscription->expires_at?->toIso8601String(),
@@ -130,6 +134,7 @@ class SubscriptionController extends Controller
                 'current_plan_type' => $card['plan_type'],
                 'status_label' => $card['status_label'],
                 'is_active' => $card['is_active'],
+                'billing_cycle' => $this->billingCyclePayload($user),
                 ...$upgrade,
             ], 200);
         } catch (\Exception $e) {
@@ -141,6 +146,116 @@ class SubscriptionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to load current plan.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    public function billingCycle(Request $request): JsonResponse
+    {
+        try {
+            return response()->json([
+                'success' => 200,
+                ...$this->billingCyclePayload($request->user()),
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('billing cycle API failed', [
+                'user_id' => optional($request->user())->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load billing cycle.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    public function switchBillingCycle(Request $request): JsonResponse
+    {
+        try {
+            $data = $request->validate([
+                'payment_method' => 'nullable|string|in:easypaisa,jazzcash,bank,card,google_pay,apple_pay',
+            ]);
+
+            $user = $request->user();
+            $payload = $this->billingCyclePayload($user);
+
+            if (!$payload['can_switch_to_annual']) {
+                $message = $payload['billing_cycle_pending']
+                    ? 'You already have an annual billing request awaiting verification.'
+                    : ($payload['current_cycle'] === 'annual'
+                        ? 'You are already on annual billing.'
+                        : 'Only active VIP or VVIP members on a monthly plan can switch to annual billing.');
+
+                return response()->json([
+                    'success' => false,
+                    'message' => $message,
+                    ...$payload,
+                ], 422);
+            }
+
+            $active = $user->activeSubscription();
+            $plan = $active?->plan;
+            if (!$active || !$plan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only active VIP or VVIP members on a monthly plan can switch to annual billing.',
+                    ...$payload,
+                ], 422);
+            }
+
+            $pricing = $this->annualPricing($plan);
+
+            $subscriptionData = [
+                'user_id' => $user->id,
+                'subscription_id' => $plan->id,
+                'status' => 'paid',
+                'billing_cycle' => 'annual',
+                'payment_method' => $data['payment_method'] ?? null,
+                'starts_at' => null,
+                'expires_at' => null,
+            ];
+
+            if (Schema::hasColumn('user_subscriptions', 'original_price')) {
+                $subscriptionData['original_price'] = $pricing['annual_original_price'];
+                $subscriptionData['amount_payable'] = $pricing['annual_payable'];
+                $subscriptionData['discount_percent'] = $pricing['discount_percent'];
+                $subscriptionData['discount_reason'] = 'annual_billing';
+            }
+
+            $subscription = UserSubscription::create($subscriptionData);
+
+            return response()->json([
+                'success' => 200,
+                'message' => 'Annual billing request submitted. Please complete payment.',
+                'requires_payment_upload' => true,
+                'subscription' => [
+                    'id' => $subscription->id,
+                    'status' => $subscription->status,
+                    'billing_cycle' => 'annual',
+                    'plan' => $this->formatPlan($plan, $user),
+                    'requires_payment_upload' => true,
+                    'pricing' => $pricing,
+                ],
+                ...$this->billingCyclePayload($user),
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('switch billing cycle API failed', [
+                'user_id' => optional($request->user())->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to switch billing cycle.',
                 'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
@@ -595,8 +710,13 @@ class SubscriptionController extends Controller
         $isActive = $subscription?->isActive() ?? true;
         $statusLabel = $isActive ? 'Active' : 'Inactive';
         $price = (float) ($plan?->price ?? 0);
+        $cycle = $subscription?->billing_cycle ?? 'monthly';
+        $isAnnual = $isPaid && $cycle === 'annual';
         $durationUnit = strtolower((string) ($plan?->duration_unit ?? 'months'));
-        $pricePeriod = $durationUnit === 'months' ? '/month' : '/'.$durationUnit;
+        $pricePeriod = $isAnnual ? '/year' : ($durationUnit === 'months' ? '/month' : '/'.$durationUnit);
+        $displayPrice = $isAnnual && $subscription?->amount_payable !== null
+            ? (float) $subscription->amount_payable
+            : $price;
         $renewsAt = $subscription?->expires_at;
 
         return [
@@ -608,14 +728,83 @@ class SubscriptionController extends Controller
             'status' => $subscription?->status ?? 'free',
             'status_label' => $statusLabel,
             'is_active' => $isActive,
-            'price' => $price,
+            'billing_cycle' => $isPaid ? $cycle : null,
+            'price' => $displayPrice,
             'price_label' => $isPaid
-                ? 'PKR '.number_format($price, 0).$pricePeriod
+                ? 'PKR '.number_format($displayPrice, 0).$pricePeriod
                 : 'Free',
             'renews_at' => $renewsAt?->toIso8601String(),
             'renews_label' => $renewsAt ? 'Renews '.$renewsAt->format('d M Y') : null,
             'starts_at' => $subscription?->starts_at?->toIso8601String(),
             'subscription_id' => $subscription?->id,
+        ];
+    }
+
+    private function annualDiscountPercent(): int
+    {
+        return max(0, min(100, (int) SystemSetting::getVal('annual_billing_discount_percent', 40)));
+    }
+
+    private function annualPricing(Subscription $plan): array
+    {
+        $discount = $this->annualDiscountPercent();
+        $monthly = round((float) $plan->price, 2);
+        $original = round($monthly * 12, 2);
+        $payable = round($original * (100 - $discount) / 100, 2);
+        $savings = round($original - $payable, 2);
+
+        return [
+            'discount_percent' => $discount,
+            'monthly_price' => $monthly,
+            'annual_original_price' => $original,
+            'annual_payable' => $payable,
+            'savings' => $savings,
+        ];
+    }
+
+    private function billingCyclePayload(User $user): array
+    {
+        $discount = $this->annualDiscountPercent();
+        $active = $user->activeSubscription();
+        $plan = $active?->plan;
+        $currentCycle = $active?->billing_cycle ?? 'monthly';
+        $isPaidTier = $active
+            && $active->isActive()
+            && in_array($plan?->type, ['VIP', 'VVIP'], true)
+            && (float) ($plan?->price ?? 0) > 0;
+
+        $pending = UserSubscription::query()
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['paid', 'pending'])
+            ->whereNull('cancelled_at')
+            ->latest()
+            ->first();
+
+        $billingCyclePending = (bool) ($pending && ($pending->billing_cycle ?? 'monthly') === 'annual');
+        $canSwitch = $isPaidTier && $currentCycle !== 'annual' && !$pending;
+
+        $pricing = ($plan && $isPaidTier)
+            ? $this->annualPricing($plan)
+            : [
+                'discount_percent' => $discount,
+                'monthly_price' => 0.0,
+                'annual_original_price' => 0.0,
+                'annual_payable' => 0.0,
+                'savings' => 0.0,
+            ];
+
+        return [
+            'title' => 'Change Billing Cycle',
+            'subtitle' => 'Switch to annual & save '.$discount.'%',
+            'current_cycle' => $isPaidTier ? $currentCycle : 'monthly',
+            'can_switch_to_annual' => $canSwitch,
+            'billing_cycle_pending' => $billingCyclePending,
+            'discount_percent' => $pricing['discount_percent'],
+            'monthly_price' => $pricing['monthly_price'],
+            'annual_original_price' => $pricing['annual_original_price'],
+            'annual_payable' => $pricing['annual_payable'],
+            'savings' => $pricing['savings'],
+            'plan' => ($plan && $isPaidTier) ? $this->formatPlan($plan, $user) : null,
         ];
     }
 

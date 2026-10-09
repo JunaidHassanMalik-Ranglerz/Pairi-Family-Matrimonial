@@ -81,6 +81,7 @@ class UserResource extends JsonResource
             'profile_photo_visible' => (bool) ($this->profile_photo_visible ?? true),
             'additional_photos_visible' => (bool) ($this->additional_photos_visible ?? true),
             'profile_boost_until' => $this->profile_boost_until?->toIso8601String(),
+            'likes_count' => $this->resource->likesCount(),
             'plan_type' => $membership['plan_type'],
             'discount_eligible' => $membership['discount_eligible'],
             'optional_profile_completed' => $membership['optional_profile_completed'],

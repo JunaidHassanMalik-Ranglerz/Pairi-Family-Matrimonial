@@ -88,6 +88,31 @@
                     </form>
                 </div>
             </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    <h4>Billing Cycle</h4>
+                </div>
+                <div class="card-body">
+                    <form action="{{ route('admin.settings.store') }}" method="POST">
+                        @csrf
+                        <input type="hidden" name="section" value="billing">
+                        <div class="form-group row">
+                            <label class="col-sm-3 col-form-label">Annual Discount (%)</label>
+                            <div class="col-sm-6">
+                                <input type="number" class="form-control" name="annual_billing_discount_percent" min="0" max="100" value="{{ old('annual_billing_discount_percent', $settings['annual_billing_discount_percent'] ?? 40) }}" required>
+                                <small class="text-muted">Applied when a VIP or VVIP member switches their current plan from monthly to annual. Example: 40 means 12 months at 40% off the monthly price.</small>
+                            </div>
+                        </div>
+                        <div class="form-group row mb-0">
+                            <div class="col-sm-3"></div>
+                            <div class="col-sm-6">
+                                <button type="submit" class="btn btn-primary">Save</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
     </section>
 </div>

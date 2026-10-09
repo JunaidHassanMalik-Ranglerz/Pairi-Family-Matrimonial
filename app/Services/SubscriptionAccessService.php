@@ -213,6 +213,90 @@ class SubscriptionAccessService
         ];
     }
 
+    public function paidPlanType(User $user): ?string
+    {
+        $plan = $user->activeSubscription()?->plan;
+
+        if (!$plan || $plan->type === 'Free' || (float) $plan->price <= 0) {
+            return null;
+        }
+
+        return $plan->type;
+    }
+
+    public function dailyAutoSuperLikes(User $user): int
+    {
+        $features = $this->features($user);
+        if (!array_key_exists('super_likes_per_day', $features)) {
+            return 0;
+        }
+
+        $perDay = $features['super_likes_per_day'];
+        if ($perDay === null) {
+            return max(0, (int) config('pairi_family.vvip_auto_super_likes_per_day', 25));
+        }
+
+        return max(0, (int) $perDay);
+    }
+
+    public function grantDailyPackageLikes(User $user): int
+    {
+        $amount = $this->dailyAutoSuperLikes($user);
+        if ($amount <= 0) {
+            return 0;
+        }
+
+        $today = now()->toDateString();
+        if ($user->package_likes_granted_on?->toDateString() === $today) {
+            return 0;
+        }
+
+        $user->package_likes_total = (int) ($user->package_likes_total ?? 0) + $amount;
+        $user->package_likes_granted_on = $today;
+        $user->save();
+
+        return $amount;
+    }
+
+    public function syncAutoBoost(User $user): string
+    {
+        $type = $this->paidPlanType($user);
+        $hours = (int) config('pairi_family.boost_duration_hours', 24);
+
+        if (!in_array($type, ['VIP', 'VVIP'], true)) {
+            if ($user->profile_boost_until) {
+                $user->update(['profile_boost_until' => null]);
+
+                return 'cleared';
+            }
+
+            return 'skipped';
+        }
+
+        if ($type === 'VVIP') {
+            $until = $user->profile_boost_until;
+            if (!$until || $until->lte(now()->addHours(12))) {
+                $user->update(['profile_boost_until' => now()->addHours($hours)]);
+
+                return 'renewed';
+            }
+
+            return 'active';
+        }
+
+        if ($user->profile_boost_until?->isFuture()) {
+            return 'active';
+        }
+
+        if (!$this->can($user, 'boost')) {
+            return 'quota_exhausted';
+        }
+
+        $this->applyBoost($user);
+
+        return 'applied';
+    }
+
     public function startChat(User $starter, User $recipient): array
     {
         $existing = ChatThread::query()

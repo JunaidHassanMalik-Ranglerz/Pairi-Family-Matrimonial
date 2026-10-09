@@ -53,6 +53,9 @@ class MatchService
                     })
                     ->latest();
             }])
+            ->withCount(['receivedInterests as inbound_likes_count' => function ($q) {
+                $q->whereIn('action', ['interest', 'super_like']);
+            }])
             ->where('id', '!=', $viewer->id)
             ->where('status', 'active')
             ->where('profile_completed', true)

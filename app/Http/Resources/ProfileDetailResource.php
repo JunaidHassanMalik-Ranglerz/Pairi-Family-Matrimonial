@@ -97,6 +97,7 @@ class ProfileDetailResource extends JsonResource
             'like_message' => $isLiked
                 ? 'You have liked this profile.'
                 : 'You have not liked this profile yet.',
+            'likes_count' => $this->resource->likesCount(),
             'interest_received' => (bool) ($this->interest_received ?? false),
             'mutual_match' => (bool) ($this->mutual_match ?? false),
             ...$this->profileBadgePayload(),

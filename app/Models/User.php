@@ -52,6 +52,8 @@ class User extends Authenticatable
         'can_login' => 'boolean',
         'profile_boost_until' => 'datetime',
         'reactivation_requested_at' => 'datetime',
+        'package_likes_total' => 'integer',
+        'package_likes_granted_on' => 'date',
     ];
 
     public function hasPendingReactivationRequest(): bool
@@ -96,6 +98,23 @@ class User extends Authenticatable
     public function receivedInterests(): HasMany
     {
         return $this->hasMany(ProfileInterest::class, 'to_user_id');
+    }
+
+    public function likesCount(): int
+    {
+        if (array_key_exists('inbound_likes_count', $this->getAttributes())) {
+            $real = (int) $this->inbound_likes_count;
+        } elseif ($this->relationLoaded('receivedInterests')) {
+            $real = $this->receivedInterests
+                ->whereIn('action', ['interest', 'super_like'])
+                ->count();
+        } else {
+            $real = (int) $this->receivedInterests()
+                ->whereIn('action', ['interest', 'super_like'])
+                ->count();
+        }
+
+        return $real + (int) ($this->package_likes_total ?? 0);
     }
 
     public function interactedUserIds(): Collection

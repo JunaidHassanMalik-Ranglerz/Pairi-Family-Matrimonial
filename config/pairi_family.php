@@ -63,6 +63,7 @@ return [
     'otp_expiry_minutes' => 5,
     'otp_resend_seconds' => 300,
     'boost_duration_hours' => (int) env('PAIRI_BOOST_DURATION_HOURS', 24),
+    'vvip_auto_super_likes_per_day' => (int) env('PAIRI_VVIP_AUTO_SUPER_LIKES_PER_DAY', 25),
 
     // Return verification_code in send/resend API (set true for staging; use SMS in production).
     'expose_phone_otp_in_response' => env('PAIRI_EXPOSE_PHONE_OTP', null),

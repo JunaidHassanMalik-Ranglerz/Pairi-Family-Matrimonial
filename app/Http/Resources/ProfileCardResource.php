@@ -61,6 +61,7 @@ class ProfileCardResource extends JsonResource
             'like_message' => $isLiked
                 ? 'You have liked this profile.'
                 : 'You have not liked this profile yet.',
+            'likes_count' => $this->resource->likesCount(),
             'match_score' => (int) ($this->match_score ?? 0),
             'interests' => $this->interests ?? [],
             ...$this->profileBadgePayload(),

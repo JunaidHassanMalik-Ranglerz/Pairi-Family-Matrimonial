@@ -32,6 +32,11 @@ class SettingController extends Controller
                 'redeem_boost_days' => 'required|integer|min:1',
             ]);
             $message = 'Redeem settings updated successfully.';
+        } elseif ($section === 'billing') {
+            $data = $request->validate([
+                'annual_billing_discount_percent' => 'required|integer|min:0|max:100',
+            ]);
+            $message = 'Annual billing discount updated successfully.';
         } else {
             $data = $request->validate([
                 'invite_reward_points' => 'required|numeric|min:0',
@@ -40,6 +45,7 @@ class SettingController extends Controller
                 'redeem_vvip_points' => 'required|numeric|min:0',
                 'redeem_boost_points' => 'required|numeric|min:0',
                 'redeem_boost_days' => 'required|integer|min:1',
+                'annual_billing_discount_percent' => 'sometimes|required|integer|min:0|max:100',
             ]);
             $message = 'Settings updated successfully.';
         }

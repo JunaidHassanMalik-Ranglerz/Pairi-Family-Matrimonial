@@ -234,9 +234,7 @@ class UserController extends Controller
         $subscription->load('plan');
         $subscription->status = 'verified';
         $subscription->starts_at = now();
-        $subscription->expires_at = $subscription->plan
-            ? $subscription->plan->expiresAtFrom(now())
-            : now()->addDays(30);
+        $subscription->expires_at = $this->expiresAtForVerifiedSubscription($subscription);
         $subscription->save();
 
         \App\Models\UserSubscription::query()
@@ -252,5 +250,16 @@ class UserController extends Controller
             'pending_subscription_count' => User::pendingSubscriptionVerificationCount(),
             'pending_subscription_label' => User::pendingSubscriptionVerificationLabel(),
         ]);
+    }
+
+    private function expiresAtForVerifiedSubscription(\App\Models\UserSubscription $subscription): \Carbon\Carbon
+    {
+        if (($subscription->billing_cycle ?? 'monthly') === 'annual') {
+            return now()->addMonths(12);
+        }
+
+        return $subscription->plan
+            ? $subscription->plan->expiresAtFrom(now())
+            : now()->addDays(30);
     }
 }

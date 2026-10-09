@@ -27,6 +27,7 @@ class Kernel extends ConsoleKernel
         })->everyFiveMinutes()->name('cron_test')->withoutOverlapping();
 
         $schedule->command('notify:birthday')->daily();
+        $schedule->command('packages:sync-benefits')->hourly()->withoutOverlapping();
     }
 
     /**

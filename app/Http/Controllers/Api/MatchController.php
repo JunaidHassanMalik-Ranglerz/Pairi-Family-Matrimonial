@@ -248,6 +248,14 @@ class MatchController extends Controller
             }]);
         }
 
+        if (!array_key_exists('inbound_likes_count', $user->getAttributes())) {
+            $user->loadCount([
+                'receivedInterests as inbound_likes_count' => function ($q) {
+                    $q->whereIn('action', ['interest', 'super_like']);
+                },
+            ]);
+        }
+
         $user->match_score = $this->matchService->scoreProfile($viewer, $user);
         $user->interest_sent = $viewer->sentInterests()
             ->where('to_user_id', $user->id)

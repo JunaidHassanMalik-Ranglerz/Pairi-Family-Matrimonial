@@ -44,4 +44,9 @@ class UserSubscription extends Model
 
         return true;
     }
+
+    public function isAnnual(): bool
+    {
+        return ($this->billing_cycle ?? 'monthly') === 'annual';
+    }
 }
